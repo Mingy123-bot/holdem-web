@@ -166,6 +166,17 @@ async function boot() {
   if (!S.access) adopt(await api("/auth/v1/signup", { body: {} }));
   if (name) { try { await rpc("hello", { p_name: name }); } catch { /* name is cosmetic */ } }
   await loadLobby();
+
+  // Reconnect: a refresh or a locked phone must land you back at your table,
+  // not in the lobby where "Sit" then fails with "already seated".
+  const mine = seats.find((s) => s.player_id === S.uid);
+  if (mine) {
+    room = rooms.find((r) => r.id === mine.room_id) || null;
+    if (room) {
+      try { view = await rpc("room_view", { p_room: room.id }); startPolling(); }
+      catch { room = null; }
+    }
+  }
   render();
 }
 
@@ -288,7 +299,8 @@ function seatHTML(seatIdx, info, h, me) {
   const rel = me >= 0 ? (seatIdx - me + 9) % 9 : seatIdx;
   const ang = ((90 + rel * 40) * Math.PI) / 180;
   const x = 50 + 38 * Math.cos(ang);
-  const y = 42 + 31 * Math.sin(ang);
+  // shorter vertical radius: the bottom seat has to clear your own hole cards
+  const y = 38 + 24 * Math.sin(ang);
   const cls = ["seat"];
   if (seatIdx === me) cls.push("me");
   if (h && h.street !== "complete" && h.toAct === seatIdx) cls.push("turn");
