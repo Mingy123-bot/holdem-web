@@ -329,13 +329,25 @@ function geo() {
 }
 addEventListener("resize", () => { GEO = null; render(); });
 
-function seatHTML(seatIdx, info, h, me) {
-  const ps = h?.players?.find((p) => p.seat === seatIdx);
-  const rel = me >= 0 ? (seatIdx - me + 9) % 9 : seatIdx;
-  const ang = ((90 + rel * 40) * Math.PI) / 180;
+/** Occupied seats only, evenly spaced, you at the bottom. Two players face
+ *  each other instead of huddling in adjacent chair numbers. */
+function ringPositions() {
+  const occ = (view?.seats || []).map((s) => s.seat).sort((a, b) => a - b);
+  const me = mySeat();
+  const start = Math.max(0, occ.indexOf(me));
+  const ring = occ.slice(start).concat(occ.slice(0, start));
   const g = geo();
-  const x = 50 + g.rx * Math.cos(ang);
-  const y = g.cy + g.ry * Math.sin(ang);
+  const pos = new Map();
+  ring.forEach((seat, i) => {
+    const ang = ((90 + i * (360 / ring.length)) * Math.PI) / 180;
+    pos.set(seat, { x: 50 + g.rx * Math.cos(ang), y: g.cy + g.ry * Math.sin(ang) });
+  });
+  return pos;
+}
+
+function seatHTML(seatIdx, info, h, me, at) {
+  const ps = h?.players?.find((p) => p.seat === seatIdx);
+  const x = at?.x ?? 50, y = at?.y ?? 50;
   const cls = ["seat"];
   if (seatIdx === me) cls.push("me");
   if (h && h.street !== "complete" && h.toAct === seatIdx) cls.push("turn");
@@ -357,8 +369,9 @@ function tableHTML() {
   const names = {};
   (view?.seats || []).forEach((s) => (names[s.seat] = s.name?.trim() || `Seat ${s.seat + 1}`));
 
+  const pos = ringPositions();
   const seatEls = (view?.seats || [])
-    .map((info) => seatHTML(info.seat, { name: names[info.seat], stack: info.stack }, h, me))
+    .map((info) => seatHTML(info.seat, { name: names[info.seat], stack: info.stack }, h, me, pos.get(info.seat)))
     .join("");
 
   const myTurn = h && h.street !== "complete" && you && h.toAct === you.seat;
