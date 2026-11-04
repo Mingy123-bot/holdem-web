@@ -136,10 +136,15 @@ function adopt(session) {
   S.access = session.access_token;
   S.refresh = session.refresh_token;
   localStorage.setItem(STORE_SESSION, JSON.stringify({ refresh: S.refresh }));
-  try {
-    const p = JSON.parse(atob(S.access.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
-    S.uid = p.sub;
-  } catch { /* keep the old uid */ }
+  // Prefer the id the auth server hands back; decoding the JWT is a fallback
+  // (base64url needs padding before atob, which silently threw before).
+  S.uid = session.user?.id ?? S.uid ?? null;
+  if (!S.uid) {
+    try {
+      const b64 = S.access.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      S.uid = JSON.parse(atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4))).sub ?? null;
+    } catch { S.uid = null; }
+  }
 }
 
 async function authed(fn) {
