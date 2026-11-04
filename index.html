@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#071611">
+<title>Hold'em</title>
+<style>
+  :root{
+    --felt:#0b3d2e; --felt2:#14503c; --dark:#071611; --deep:#0e2a22;
+    --ink:#0a1512; --paper:#f5f1e6; --gold:#d8b26a; --muted:#9fb3a8; --red:#c62828;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    margin:0; background:radial-gradient(120% 90% at 50% 0%, #0d4331 0%, var(--dark) 70%);
+    color:#ede7da; font:14px/1.4 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    overflow:hidden; overscroll-behavior:none;
+  }
+  #app{height:100%; position:relative}
+  .muted{color:var(--muted)}
+  .gold{color:var(--gold)}
+  button{font:inherit; border:0; border-radius:10px; padding:11px 14px; background:var(--felt2); color:#ede7da; cursor:pointer}
+  button:active{transform:translateY(1px)}
+  button:disabled{opacity:.45; cursor:default}
+  button.primary{background:var(--gold); color:var(--ink); font-weight:700}
+  button.ghost{background:transparent; border:1px solid #ffffff26}
+  button.call{background:#2e7d5b}
+  select{font:inherit; background:var(--deep); color:#ede7da; border:1px solid #ffffff1f; border-radius:8px; padding:9px}
+
+  /* ---------- lobby ---------- */
+  .wrap{max-width:640px; margin:0 auto; padding:22px 18px calc(18px + env(safe-area-inset-bottom)); height:100%; overflow:auto}
+  .lobby-h{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:18px}
+  .lobby-h h1{margin:0; font-size:24px; letter-spacing:.5px; color:var(--gold)}
+  .room{display:flex; align-items:center; gap:10px; background:var(--felt2); border-radius:14px; padding:14px 16px; margin-bottom:10px}
+  .room .grow{flex:1}
+  .room b{font-size:16px}
+  .room small{display:block; color:var(--muted); font-size:12px}
+  .foot{color:#6e8579; font-size:12px; margin-top:18px}
+  .err{color:#e57373; font-size:13px; min-height:18px}
+
+  /* ---------- table ---------- */
+  .felt{position:absolute; left:12%; top:13%; width:76%; height:54%; border-radius:50%;
+    background:radial-gradient(80% 80% at 50% 30%, #17604a 0%, var(--felt2) 60%, #0f4433 100%);
+    box-shadow:inset 0 0 0 2px #ffffff1a, 0 18px 40px #0006}
+  .topbar{position:absolute; left:0; right:0; top:0; display:flex; justify-content:space-between;
+    align-items:center; padding:calc(10px + env(safe-area-inset-top)) 14px 10px}
+  .topbar b{color:var(--gold)}
+  .seat{position:absolute; transform:translate(-50%,-50%); width:96px; padding:6px 7px;
+    background:#0e2a22e6; border:1px solid #ffffff22; border-radius:11px; font-size:11px; line-height:1.25;
+    transition:border-color .15s, box-shadow .15s}
+  .seat.me{color:var(--gold)}
+  .seat.turn{border-color:var(--gold); box-shadow:0 0 0 2px #d8b26a55, 0 0 18px #d8b26a33}
+  .seat.folded{opacity:.42}
+  .seat .nm{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#cfe0d5}
+  .seat.me .nm{color:var(--gold)}
+  .seat .st{font-weight:700; font-size:14px; color:#fff}
+  .seat .bet{color:var(--gold); font-size:10px}
+  .seat .allin{color:#ffb74d; font-size:10px}
+  .dbtn{position:absolute; right:-6px; top:-6px; width:17px; height:17px; border-radius:50%;
+    background:var(--paper); color:var(--ink); font-weight:700; font-size:10px;
+    display:grid; place-items:center}
+  .holemini{position:absolute; right:-4px; bottom:-8px; display:flex; gap:2px}
+  .center{position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); text-align:center}
+  .pot{color:var(--gold); font-weight:700; font-size:13px; letter-spacing:.4px; margin-bottom:6px}
+  .board{display:flex; gap:5px; justify-content:center}
+  .street{color:var(--muted); font-size:10px; letter-spacing:2px; margin-top:6px}
+  .bottom{position:absolute; left:0; right:0; bottom:0; padding:10px 14px calc(12px + env(safe-area-inset-bottom))}
+  .mycards{display:flex; gap:6px; justify-content:center; margin-bottom:10px}
+  .row{display:flex; gap:8px}
+  .row > *{flex:1}
+  .raisebox{display:flex; align-items:center; gap:10px; margin-bottom:8px}
+  .raisebox input[type=range]{flex:1; accent-color:var(--gold)}
+  .raisebox .amt{color:var(--gold); font-weight:700; min-width:56px; text-align:right}
+  .results{background:#0e2a22; border-radius:12px; padding:12px}
+  .results div{color:var(--gold); font-weight:600}
+  .wait{color:var(--muted); font-size:13px; padding:6px 0}
+
+  /* ---------- cards ---------- */
+  .card{width:36px; height:50px; border-radius:5px; background:var(--paper); color:#1a1a1a;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+    font-weight:700; box-shadow:0 1px 2px #0004}
+  .card b{font-size:15px; line-height:1}
+  .card i{font-size:12px; font-style:normal; line-height:1}
+  .card.red{color:var(--red)}
+  .card.empty{background:#00000026; box-shadow:inset 0 0 0 1px #ffffff2e}
+  .card.lg{width:56px; height:78px}
+  .card.lg b{font-size:22px} .card.lg i{font-size:18px}
+  .card.xs{width:19px; height:26px; border-radius:3px; gap:0}
+  .card.xs b{font-size:9px} .card.xs i{font-size:7px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+"use strict";
+
+// Publishable key. RLS and the poker function gate every read and write.
+const BASE = "https://hqohtvmfrbeausylxgkr.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhxb2h0dm1mcmJlYXVzeWx4Z2tyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM3OTEyMTYsImV4cCI6MjEwOTM2NzIxNn0.-s6JEonKk5EcvoJM4vGbe4xNbZiKrmKLsrI95MDLe5Q";
+
+const app = document.getElementById("app");
+const STORE_SESSION = "holdem.session";
+const STORE_NAME = "holdem.name";
+
+let S = { access: null, refresh: null, uid: null };
+let name = localStorage.getItem(STORE_NAME) || "";
+let rooms = [], seats = [], room = null, view = null;
+let err = "", busy = false, dragging = false, raiseTo = null;
+let gen = 0;
+
+// ---------------------------------------------------------------- transport
+
+class ApiError extends Error {
+  constructor(message, status) { super(message); this.status = status; }
+}
+
+async function api(path, { method = "POST", body = null, token = null } = {}) {
+  const headers = { apikey: ANON };
+  if (body !== null) headers["Content-Type"] = "application/json";
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(BASE + path, {
+    method, headers, body: body === null ? undefined : JSON.stringify(body),
+  });
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) {
+    const msg = (data && (data.error || data.message || data.hint || data.msg)) || `HTTP ${res.status}`;
+    throw new ApiError(msg, res.status);
+  }
+  return data;
+}
+
+function adopt(session) {
+  S.access = session.access_token;
+  S.refresh = session.refresh_token;
+  localStorage.setItem(STORE_SESSION, JSON.stringify({ refresh: S.refresh }));
+  try {
+    const p = JSON.parse(atob(S.access.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    S.uid = p.sub;
+  } catch { /* keep the old uid */ }
+}
+
+async function authed(fn) {
+  try {
+    return await fn(S.access);
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.status !== 401 || !S.refresh) throw e;
+    adopt(await api("/auth/v1/token?grant_type=refresh_token", { body: { refresh_token: S.refresh } }));
+    return await fn(S.access);
+  }
+}
+
+const rpc = (fn, body) => authed((t) => api(`/rest/v1/rpc/${fn}`, { body, token: t }));
+const poker = (body) => authed((t) => api("/functions/v1/poker", { body, token: t }));
+
+// ---------------------------------------------------------------- boot
+
+async function boot() {
+  const saved = JSON.parse(localStorage.getItem(STORE_SESSION) || "null");
+  if (saved?.refresh) {
+    try { adopt(await api("/auth/v1/token?grant_type=refresh_token", { body: { refresh_token: saved.refresh } })); }
+    catch { localStorage.removeItem(STORE_SESSION); }
+  }
+  if (!S.access) adopt(await api("/auth/v1/signup", { body: {} }));
+  if (name) { try { await rpc("hello", { p_name: name }); } catch { /* name is cosmetic */ } }
+  await loadLobby();
+  render();
+}
+
+async function loadLobby() {
+  [rooms, seats] = await Promise.all([
+    authed((t) => api("/rest/v1/rooms?select=id,name,sb,bb&order=sb", { method: "GET", token: t })),
+    authed((t) => api("/rest/v1/seats?select=room_id,seat,player_id,stack", { method: "GET", token: t })),
+  ]);
+}
+
+// ---------------------------------------------------------------- lobby
+
+function freeSeat(roomId) {
+  const taken = new Set(seats.filter((s) => s.room_id === roomId).map((s) => s.seat));
+  for (let i = 0; i < 9; i++) if (!taken.has(i)) return i;
+  return -1;
+}
+
+window.saveName = async (ev) => {
+  ev.preventDefault();
+  name = new FormData(ev.target).get("n").toString().trim().slice(0, 16) || "Player";
+  localStorage.setItem(STORE_NAME, name);
+  try { await rpc("hello", { p_name: name }); } catch (e) { err = e.message; }
+  render();
+  if (!rooms.length) { try { await loadLobby(); render(); } catch (e) { err = e.message; render(); } }
+};
+
+window.sit = async (roomId, buyin) => {
+  if (busy) return;
+  busy = true;
+  try {
+    const seat = freeSeat(roomId);
+    if (seat < 0) throw new Error("table is full");
+    const v = await rpc("sit", { p_room: roomId, p_seat: seat, p_buyin: buyin });
+    room = rooms.find((r) => r.id === roomId);
+    view = v;
+    err = "";
+  } catch (e) { err = e.message; }
+  busy = false;
+  if (room) startPolling();
+  render();
+};
+
+window.leave = async () => {
+  gen++;
+  const r = room;
+  room = null; view = null; raiseTo = null;
+  try { if (r) await rpc("leave_table", { p_room: r.id }); } catch (e) { err = e.message; }
+  try { await loadLobby(); } catch (e) { err = e.message; }
+  render();
+};
+
+// ---------------------------------------------------------------- table
+
+function mySeat() {
+  return view?.seats.find((s) => s.playerId === S.uid)?.seat ?? -1;
+}
+
+function startPolling() {
+  const g = ++gen;
+  const loop = async () => {
+    if (g !== gen || !room) return;
+    try {
+      const v = await rpc("room_view", { p_room: room.id });
+      const cur = view?.hand, inc = v.hand;
+      const stale = cur && inc && (inc.handNo < cur.handNo || (inc.handNo === cur.handNo && inc.version < cur.version));
+      if (!stale) { view = v; err = ""; }
+    } catch (e) { err = e.message; }
+    refreshTable();
+    const h = view?.hand;
+    const myTurn = h && h.street !== "complete" && h.you && h.toAct === h.you.seat;
+    setTimeout(loop, myTurn ? 700 : 1400);
+  };
+  loop();
+}
+
+async function send(body) {
+  if (busy) return;
+  busy = true;
+  try {
+    const r = await poker(body);
+    if (r.view) view = r.view;
+    err = "";
+  } catch (e) { err = e.message; }
+  busy = false;
+  refreshTable();
+}
+
+window.act = (type, to) => send({ op: "act", room: room.id, action: type === "raise" ? { type, to } : { type } });
+window.deal = () => send({ op: "next", room: room.id });
+window.rebuy = async () => {
+  if (busy) return;
+  busy = true;
+  try { view = await rpc("rebuy", { p_room: room.id, p_amount: 50 * room.bb }); err = ""; }
+  catch (e) { err = e.message; }
+  busy = false;
+  refreshTable();
+};
+
+window.setRaise = (v) => {
+  raiseTo = Number(v);
+  const el = document.getElementById("raiseAmt");
+  if (el) el.textContent = raiseTo;
+};
+
+function cardHTML(c, cls = "") {
+  if (!c) return `<div class="card empty ${cls}"></div>`;
+  const suit = c.slice(-1), rank = c.slice(0, -1).replace("T", "10");
+  const red = suit === "h" || suit === "d";
+  const sym = { s: "♠", h: "♥", d: "♦", c: "♣" }[suit] || "?";
+  return `<div class="card ${cls}"${red ? ' style="color:var(--red)"' : ""}><b>${rank}</b><i>${sym}</i></div>`;
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function seatHTML(seatIdx, info, h, me) {
+  const ps = h?.players?.find((p) => p.seat === seatIdx);
+  const rel = me >= 0 ? (seatIdx - me + 9) % 9 : seatIdx;
+  const ang = ((90 + rel * 40) * Math.PI) / 180;
+  const x = 50 + 38 * Math.cos(ang);
+  const y = 42 + 31 * Math.sin(ang);
+  const cls = ["seat"];
+  if (seatIdx === me) cls.push("me");
+  if (h && h.street !== "complete" && h.toAct === seatIdx) cls.push("turn");
+  if (ps?.folded) cls.push("folded");
+  const revealed = h?.results?.revealed?.find((r) => r.seat === seatIdx)?.hole || [];
+  return `
+    <div class="${cls.join(" ")}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%">
+      ${h && h.dealer === seatIdx ? '<div class="dbtn">D</div>' : ""}
+      <div class="nm">${esc(info.name || "Seat " + (seatIdx + 1))}</div>
+      <div class="st">${ps?.stack ?? info.stack}</div>
+      ${ps?.bet > 0 ? `<div class="bet">bet ${ps.bet}</div>` : ps?.allIn ? '<div class="allin">all in</div>' : ""}
+      ${revealed.length ? `<div class="holemini">${revealed.map((c) => cardHTML(c, "xs")).join("")}</div>` : ""}
+    </div>`;
+}
+
+function tableHTML() {
+  const h = view?.hand, you = h?.you, me = mySeat();
+  const names = {};
+  (view?.seats || []).forEach((s) => (names[s.seat] = s.name?.trim() || `Seat ${s.seat + 1}`));
+
+  const seatEls = (view?.seats || [])
+    .map((info) => seatHTML(info.seat, { name: names[info.seat], stack: info.stack }, h, me))
+    .join("");
+
+  const myTurn = h && h.street !== "complete" && you && h.toAct === you.seat;
+  const canRaise = you?.canRaise && you.maxRaiseTo > you.minRaiseTo;
+
+  if (canRaise && (raiseTo === null || raiseTo < you.minRaiseTo || raiseTo > you.maxRaiseTo)) {
+    raiseTo = you.minRaiseTo;
+  }
+
+  let bottom = "";
+  if (err) bottom += `<div class="err">${esc(err)}</div>`;
+
+  if (!h) {
+    bottom += `<button class="primary" style="width:100%" onclick="deal()" ${busy ? "disabled" : ""}>Deal first hand</button>`;
+  } else if (h.street === "complete") {
+    const pots = (h.results?.pots || [])
+      .map((p) => `<div>Pot ${p.amount} · ${p.winners.map((w) => `${esc(names[w.seat] || "Seat " + (w.seat + 1))} +${w.amount}`).join(", ")}</div>`)
+      .join("");
+    bottom += `<div class="results"><span class="muted" style="font-size:11px">Hand ${h.handNo}</span>${pots}
+      <button class="primary" style="width:100%;margin-top:10px" onclick="deal()" ${busy ? "disabled" : ""}>Deal next hand</button></div>`;
+  } else if (!you) {
+    bottom += `<div class="row"><span class="wait" style="flex:2">Sitting out — no chips</span>
+      <button onclick="rebuy()" ${busy ? "disabled" : ""}>Rebuy ${50 * room.bb}</button></div>`;
+  } else if (myTurn) {
+    if (canRaise) {
+      bottom += `<div class="raisebox">
+        <span class="muted" style="font-size:12px">Raise to</span>
+        <input type="range" min="${you.minRaiseTo}" max="${you.maxRaiseTo}" step="1" value="${raiseTo}"
+               oninput="setRaise(this.value)" onpointerdown="dragging=true" onpointerup="dragging=false">
+        <span class="amt" id="raiseAmt">${raiseTo}</span></div>`;
+    }
+    bottom += `<div class="row">
+      <button class="ghost" onclick="act('fold')" ${busy ? "disabled" : ""}>Fold</button>
+      <button class="call" onclick="act('${you.canCheck ? "check" : "call"}')" ${busy ? "disabled" : ""}>
+        ${you.canCheck ? "Check" : `Call ${you.toCall}`}</button>
+      ${canRaise ? `<button class="primary" onclick="act('raise', raiseTo)" ${busy ? "disabled" : ""}>Raise ${raiseTo}</button>` : ""}
+    </div>`;
+  } else {
+    bottom += `<div class="wait">Waiting for ${esc(names[h.toAct] || "the next player")}…</div>`;
+  }
+
+  return `
+    <div class="topbar"><div><b>${esc(room.name)}</b> <span class="muted" style="font-size:11px">${room.sb}/${room.bb}</span></div>
+      <button class="ghost" onclick="leave()" style="padding:6px 12px">Leave</button></div>
+    <div class="felt"></div>
+    ${seatEls}
+    <div class="center">
+      <div class="pot">POT ${h?.pot ?? 0}</div>
+      <div class="board">${[0, 1, 2, 3, 4].map((i) => cardHTML(h?.board?.[i])).join("")}</div>
+      ${h && h.street !== "complete" ? `<div class="street">${esc(h.street.toUpperCase())}</div>` : ""}
+    </div>
+    <div class="bottom">
+      ${you?.hole?.length ? `<div class="mycards">${you.hole.map((c) => cardHTML(c, "lg")).join("")}</div>` : ""}
+      ${bottom}
+    </div>`;
+}
+
+function refreshTable() {
+  if (dragging) return;
+  render();
+}
+
+// ---------------------------------------------------------------- render
+
+function render() {
+  if (!name) {
+    app.innerHTML = `<div class="wrap" style="display:flex;flex-direction:column;justify-content:center">
+      <h1 style="color:var(--gold);margin:0 0 6px">Hold'em</h1>
+      <p class="muted" style="margin:0 0 18px">How the table sees you.</p>
+      <form onsubmit="saveName(event)">
+        <input name="n" maxlength="16" placeholder="Your name" autocomplete="nickname"
+          style="width:100%;padding:14px;border-radius:12px;border:1px solid #ffffff1f;background:#0e2a22;color:#ede7da;font:inherit">
+        <button class="primary" style="width:100%;margin-top:12px">Sit down</button>
+      </form>
+      ${err ? `<p class="err">${esc(err)}</p>` : ""}</div>`;
+    return;
+  }
+
+  if (room) { app.innerHTML = tableHTML(); return; }
+
+  const rows = rooms.map((r) => {
+    const occupied = seats.filter((s) => s.room_id === r.id).length;
+    const opts = [20, 50, 100].map((bb) => `<option value="${bb * r.bb}">${bb * r.bb} (${bb} BB)</option>`).join("");
+    return `<div class="room">
+      <div class="grow"><b>${esc(r.name)}</b><small>${r.sb}/${r.bb} · ${occupied}/9 seated</small></div>
+      <select id="buy-${r.id}">${opts}</select>
+      <button class="primary" onclick="sit('${r.id}', Number(document.getElementById('buy-${r.id}').value))"
+        ${occupied >= 9 ? "disabled" : ""}>Sit</button>
+    </div>`;
+  }).join("");
+
+  app.innerHTML = `<div class="wrap">
+    <div class="lobby-h"><h1>Hold'em</h1><span class="muted">${esc(name)}</span></div>
+    ${rows || '<p class="muted">Loading tables…</p>'}
+    <p class="err">${esc(err)}</p>
+    <p class="foot">Play money, nothing to cash out. Open this page on a second device to fill the table — two players minimum.</p>
+  </div>`;
+}
+
+boot().catch((e) => { err = e.message; render(); });
+</script>
+</body>
+</html>
