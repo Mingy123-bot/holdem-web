@@ -60,7 +60,7 @@
   .dbtn{position:absolute; right:-6px; top:-6px; width:17px; height:17px; border-radius:50%;
     background:var(--paper); color:var(--ink); font-weight:700; font-size:10px;
     display:grid; place-items:center}
-  .holemini{position:absolute; right:-4px; bottom:-8px; display:flex; gap:2px}
+  .holemini{position:absolute; left:50%; bottom:-26px; transform:translateX(-50%); display:flex; gap:2px}
   .center{position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); text-align:center}
   .pot{color:var(--gold); font-weight:700; font-size:13px; letter-spacing:.4px; margin-bottom:6px}
   .board{display:flex; gap:5px; justify-content:center}
@@ -88,6 +88,19 @@
   .card.lg b{font-size:22px} .card.lg i{font-size:18px}
   .card.xs{width:19px; height:26px; border-radius:3px; gap:0}
   .card.xs b{font-size:9px} .card.xs i{font-size:7px}
+
+  /* narrow phones: 9 seats at 96px would collide */
+  @media (max-width:560px){
+    .seat{width:78px; padding:5px 6px; font-size:10px}
+    .seat .st{font-size:12px}
+    .card{width:29px; height:41px}
+    .card b{font-size:12px} .card i{font-size:10px}
+    .card.lg{width:48px; height:67px}
+    .card.lg b{font-size:19px} .card.lg i{font-size:15px}
+    .card.xs{width:16px; height:22px}
+    .card.xs b{font-size:8px} .card.xs i{font-size:6px}
+    .raisebox .amt{min-width:44px}
+  }
 </style>
 </head>
 <body>
@@ -310,7 +323,8 @@ function seatHTML(seatIdx, info, h, me) {
   if (seatIdx === me) cls.push("me");
   if (h && h.street !== "complete" && h.toAct === seatIdx) cls.push("turn");
   if (ps?.folded) cls.push("folded");
-  const revealed = h?.results?.revealed?.find((r) => r.seat === seatIdx)?.hole || [];
+  // your own cards are already big at the bottom; no miniature copy
+  const revealed = seatIdx === me ? [] : (h?.results?.revealed?.find((r) => r.seat === seatIdx)?.hole || []);
   return `
     <div class="${cls.join(" ")}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%">
       ${h && h.dealer === seatIdx ? '<div class="dbtn">D</div>' : ""}
