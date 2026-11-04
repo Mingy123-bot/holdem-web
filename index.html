@@ -9,6 +9,10 @@
   :root{
     --felt:#0b3d2e; --felt2:#14503c; --dark:#071611; --deep:#0e2a22;
     --ink:#0a1512; --paper:#f5f1e6; --gold:#d8b26a; --muted:#9fb3a8; --red:#c62828;
+    /* table geometry in % of viewport; the media query reshapes it for phones.
+       Percentages alone turn the ring into an egg on a tall screen. */
+    --rx:38; --ry:24; --cy:38;   /* seat ring radii + centre */
+    --fx:12; --fw:76; --fy:13; --fh:54; --ccy:40;  /* felt box + board centre */
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
   html,body{height:100%}
@@ -40,7 +44,9 @@
   .err{color:#e57373; font-size:13px; min-height:18px}
 
   /* ---------- table ---------- */
-  .felt{position:absolute; left:12%; top:13%; width:76%; height:54%; border-radius:50%;
+  .felt{position:absolute; border-radius:50%;
+    left:calc(var(--fx)*1%); top:calc(var(--fy)*1%);
+    width:calc(var(--fw)*1%); height:calc(var(--fh)*1%);
     background:radial-gradient(80% 80% at 50% 30%, #17604a 0%, var(--felt2) 60%, #0f4433 100%);
     box-shadow:inset 0 0 0 2px #ffffff1a, 0 18px 40px #0006}
   .topbar{position:absolute; left:0; right:0; top:0; display:flex; justify-content:space-between;
@@ -61,7 +67,7 @@
     background:var(--paper); color:var(--ink); font-weight:700; font-size:10px;
     display:grid; place-items:center}
   .holemini{position:absolute; left:50%; bottom:-26px; transform:translateX(-50%); display:flex; gap:2px}
-  .center{position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); text-align:center}
+  .center{position:absolute; left:50%; top:calc(var(--ccy)*1%); transform:translate(-50%,-50%); text-align:center}
   .pot{color:var(--gold); font-weight:700; font-size:13px; letter-spacing:.4px; margin-bottom:6px}
   .board{display:flex; gap:5px; justify-content:center}
   .street{color:var(--muted); font-size:10px; letter-spacing:2px; margin-top:6px}
@@ -89,8 +95,9 @@
   .card.xs{width:19px; height:26px; border-radius:3px; gap:0}
   .card.xs b{font-size:9px} .card.xs i{font-size:7px}
 
-  /* narrow phones: 9 seats at 96px would collide */
+  /* narrow phones: 9 seats at 96px would collide, and a tall ring looks wrong */
   @media (max-width:560px){
+    :root{--rx:40; --ry:15; --cy:34; --fx:4; --fw:92; --fy:20; --fh:30; --ccy:36}
     .seat{width:78px; padding:5px 6px; font-size:10px}
     .seat .st{font-size:12px}
     .card{width:29px; height:41px}
@@ -312,13 +319,23 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+let GEO = null;
+function geo() {
+  if (GEO) return GEO;
+  const cs = getComputedStyle(document.documentElement);
+  const n = (k) => parseFloat(cs.getPropertyValue(k)) || 0;
+  GEO = { rx: n("--rx"), ry: n("--ry"), cy: n("--cy") };
+  return GEO;
+}
+addEventListener("resize", () => { GEO = null; render(); });
+
 function seatHTML(seatIdx, info, h, me) {
   const ps = h?.players?.find((p) => p.seat === seatIdx);
   const rel = me >= 0 ? (seatIdx - me + 9) % 9 : seatIdx;
   const ang = ((90 + rel * 40) * Math.PI) / 180;
-  const x = 50 + 38 * Math.cos(ang);
-  // shorter vertical radius: the bottom seat has to clear your own hole cards
-  const y = 38 + 24 * Math.sin(ang);
+  const g = geo();
+  const x = 50 + g.rx * Math.cos(ang);
+  const y = g.cy + g.ry * Math.sin(ang);
   const cls = ["seat"];
   if (seatIdx === me) cls.push("me");
   if (h && h.street !== "complete" && h.toAct === seatIdx) cls.push("turn");
