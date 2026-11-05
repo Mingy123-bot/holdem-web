@@ -10,7 +10,7 @@
     --felt:#0b3d2e; --felt2:#14503c; --dark:#071611; --deep:#0e2a22;
     --ink:#0a1512; --paper:#f5f1e6; --gold:#d8b26a; --muted:#9fb3a8; --red:#c62828;
     /* table geometry in % of viewport; the media query reshapes it for phones */
-    --rx:38; --ry:24; --cy:38;
+    --rx:38; --ry:24; --cy:36;
     --fx:12; --fw:76; --fy:13; --fh:54; --ccy:40;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
@@ -88,6 +88,11 @@
       inset 0 8px 30px #ffffff10,
       0 26px 70px #000a;
   }
+  .felt.turn{animation:feltTurn 1.6s ease-in-out infinite}
+  @keyframes feltTurn{50%{box-shadow:
+    0 0 0 3px #2a1a10, 0 0 0 13px #3d2416, 0 0 0 15px #d8b26a77,
+    inset 0 0 70px #00000099, inset 0 8px 30px #ffffff14,
+    0 0 46px #d8b26a44, 0 26px 70px #000a}}
   .felt::before{content:""; position:absolute; inset:9%; border-radius:50%;
     border:1px dashed #ffffff12; box-shadow:inset 0 0 40px #00000055}
   .felt::after{content:"♠"; position:absolute; inset:0; display:grid; place-items:center;
@@ -155,7 +160,7 @@
   @keyframes chipIn{from{opacity:0; transform:translateY(-10px) scale(.7)} to{opacity:1; transform:none}}
   .pot{color:var(--gold); font-weight:900; font-size:15px; letter-spacing:.6px;
     font-variant-numeric:tabular-nums; text-shadow:0 0 18px #d8b26a55}
-  .pot.bump{animation:bump .4s cubic-bezier(.2,1.6,.4,1)}
+  .pot.bump{animation:bump .4s cubic-bezier(.2,1.6,.4,1); transform-origin:left center}
   @keyframes bump{0%{transform:scale(1)} 40%{transform:scale(1.28)} 100%{transform:scale(1)}}
   .board{display:flex; gap:6px; justify-content:center; perspective:800px}
   .street{color:var(--muted); font-size:10px; letter-spacing:3px; margin-top:8px; opacity:.8}
@@ -218,7 +223,7 @@
     background:radial-gradient(circle at 50% 45%, #ffd76a55, transparent 60%);
     animation:flashOut .7s ease-out forwards}
   @keyframes flashOut{from{opacity:1} to{opacity:0}}
-  .banner{position:fixed; left:50%; top:34%; transform:translate(-50%,-50%); z-index:21;
+  .banner{position:fixed; left:50%; top:23%; transform:translate(-50%,-50%); z-index:21;
     font-size:30px; font-weight:900; letter-spacing:3px; color:#ffe08a; pointer-events:none;
     text-shadow:0 0 30px #ffb74d, 0 6px 20px #000; animation:banner 2.1s cubic-bezier(.2,1.4,.3,1) forwards}
   @keyframes banner{
@@ -722,7 +727,7 @@ function tableHTML() {
         <button class="ghost" onclick="leave()" style="padding:6px 12px">Leave</button>
       </div>
     </div>
-    <div class="felt"></div>
+    <div class="felt ${myTurn ? "turn" : ""}"></div>
     ${seatEls}
     <div class="center">
       <div class="potwrap">
