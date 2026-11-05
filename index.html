@@ -639,7 +639,11 @@ function seatHTML(seatIdx, info, h, me, at) {
   if (h?.street === "complete" && winners.includes(seatIdx)) cls.push("win");
 
   const revealed = seatIdx === me ? [] : (h?.results?.revealed?.find((r) => r.seat === seatIdx)?.hole || []);
-  const label = pendingFloat?.seat === seatIdx ? pendingFloat.label : seatFloat(ps, seatIdx);
+  // a new hand's blinds are not actions: only label deltas within the same hand
+  const sameHand = h && h.handNo === snap.handNo;
+  const label = !sameHand ? null
+    : pendingFloat?.seat === seatIdx ? pendingFloat.label
+    : seatFloat(ps, seatIdx);
   const who = info.name || "Seat " + (seatIdx + 1);
 
   return `
