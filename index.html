@@ -442,8 +442,8 @@ window.saveName = async (ev) => {
 window.sit = async (roomId, buyin) => {
   if (busy) return;
   busy = true;
-  render(true);
   try {
+    render(true);
     const seat = freeSeat(roomId);
     if (seat < 0) throw new Error("table is full");
     const v = await rpc("sit", { p_room: roomId, p_seat: seat, p_buyin: buyin });
@@ -451,8 +451,12 @@ window.sit = async (roomId, buyin) => {
     view = v;
     err = "";
     SFX.chip();
-  } catch (e) { err = e.message; }
-  busy = false;
+  } catch (e) {
+    err = e.message || String(e);
+  } finally {
+    // a stuck busy flag bricks every button on the page
+    busy = false;
+  }
   if (room) startPolling();
   render(true);
 };
@@ -502,13 +506,16 @@ function startPolling() {
 async function send(body) {
   if (busy) return;
   busy = true;
-  render(true);
   try {
+    render(true);
     const r = await poker(body);
     if (r.view) view = r.view;
     err = "";
-  } catch (e) { err = e.message; }
-  busy = false;
+  } catch (e) {
+    err = e.message || String(e);
+  } finally {
+    busy = false;
+  }
   refreshTable();
 }
 
@@ -782,6 +789,14 @@ function stateSig() {
 }
 
 function render(force = false) {
+  try { paint(force); }
+  catch (e) {
+    err = "render: " + (e.message || e);
+    app.innerHTML = `<div class="wrap"><p class="err">${esc(err)}</p></div>`;
+  }
+}
+
+function paint(force = false) {
   const sig = stateSig();
   if (!force && sig === lastSig) return;   // don't stomp running animations
   lastSig = sig;
