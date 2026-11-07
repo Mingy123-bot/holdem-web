@@ -134,6 +134,12 @@
     font-weight:900; font-size:10px; display:grid; place-items:center;
     box-shadow:0 2px 6px #0007, inset 0 -2px 3px #0002; animation:bob 2.4s ease-in-out infinite}
   @keyframes bob{50%{transform:translateY(-3px) rotate(8deg)}}
+  .timer{position:absolute; left:9px; right:9px; bottom:-5px; height:3px; border-radius:3px;
+    background:#ffffff1f; overflow:hidden}
+  .timer i{display:block; height:100%; background:linear-gradient(90deg,#d8b26a,#ffb74d);
+    transform-origin:left; animation:drain 30s linear forwards}
+  @keyframes drain{from{transform:scaleX(1)} to{transform:scaleX(0)}}
+  .warn{color:#ff8a80; font-size:10px; font-weight:800}
   .holemini{position:absolute; left:50%; bottom:-27px; transform:translateX(-50%); display:flex; gap:2px}
   .holemini .card{animation:flipIn .5s both; animation-delay:calc(var(--i,0)*90ms)}
   .float{position:absolute; left:50%; top:-22px; transform:translateX(-50%);
@@ -475,6 +481,15 @@ function startPolling() {
       const cur = view?.hand, inc = v.hand;
       const stale = cur && inc && (inc.handNo < cur.handNo || (inc.handNo === cur.handNo && inc.version < cur.version));
       if (!stale) { view = v; err = ""; }
+      // Idle clock: ask the server to fold whoever ran out. The server re-checks
+      // and version-guards the write, so every client can ask at once.
+      const hh = v.hand;
+      if (hh && hh.street !== "complete" && hh.actingAt &&
+          Date.now() - Date.parse(hh.actingAt) > 32000) {
+        poker({ op: "sweep", room: room.id })
+          .then((r) => { if (r && r.view) { view = r.view; refreshTable(); } })
+          .catch(() => {});
+      }
     } catch (e) { err = e.message; }
     refreshTable();
     const h = view?.hand;
@@ -649,14 +664,18 @@ function seatHTML(seatIdx, info, h, me, at) {
   const label = !sameHand ? null
     : pendingFloat?.seat === seatIdx ? pendingFloat.label
     : seatFloat(ps, seatIdx);
+  // seek the bar into the animation instead of restarting it on every rebuild
+  const waited = h?.actingAt ? Math.max(0, (Date.now() - Date.parse(h.actingAt)) / 1000) : 0;
+  const warn = (info.timeouts ?? 0) > 0 ? '<span class="warn">⚠</span>' : "";
   const who = info.name || "Seat " + (seatIdx + 1);
 
   return `
     <div class="${cls.join(" ")}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%;--si:${at?.slot ?? 0}">
       ${h && h.dealer === seatIdx ? '<div class="dbtn">D</div>' : ""}
       ${label ? `<div class="float">${esc(label)}</div>` : ""}
+      ${isTurn ? `<div class="timer"><i style="animation-delay:-${waited.toFixed(1)}s"></i></div>` : ""}
       <div class="head"><div class="av">${esc(who.slice(0, 1).toUpperCase())}</div>
-        <div class="nm">${esc(who)}</div></div>
+        <div class="nm">${esc(who)}</div>${warn}</div>
       <div class="st">${ps?.stack ?? info.stack}</div>
       ${ps?.bet > 0 ? `<div class="bet">bet ${ps.bet}</div>` : ps?.allIn ? '<div class="allin">ALL IN</div>' : ""}
       ${revealed.length ? `<div class="holemini">${revealed.map((c, i) => cardHTML(c, "xs", i)).join("")}</div>` : ""}
@@ -670,7 +689,7 @@ function tableHTML() {
 
   const pos = ringPositions();
   const seatEls = (view?.seats || [])
-    .map((info) => seatHTML(info.seat, { name: names[info.seat], stack: info.stack }, h, me, pos.get(info.seat)))
+    .map((info) => seatHTML(info.seat, { name: names[info.seat], stack: info.stack, timeouts: info.timeouts }, h, me, pos.get(info.seat)))
     .join("");
 
   const myTurn = h && h.street !== "complete" && you && h.toAct === you.seat;
