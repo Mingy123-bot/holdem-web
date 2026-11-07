@@ -661,7 +661,8 @@ function seatHTML(seatIdx, info, h, me, at) {
   const winners = (h?.results?.pots || []).flatMap((p) => p.winners.map((w) => w.seat));
   const cls = ["seat"];
   if (seatIdx === me) cls.push("me");
-  if (h && h.street !== "complete" && h.toAct === seatIdx) cls.push("turn");
+  const isTurn = !!(h && h.street !== "complete" && h.toAct === seatIdx);
+  if (isTurn) cls.push("turn");
   if (ps?.folded) cls.push("folded");
   if (h?.street === "complete" && winners.includes(seatIdx)) cls.push("win");
 
