@@ -144,8 +144,16 @@
     text-shadow:0 1px 5px #000; font-variant-numeric:tabular-nums}
   .myhand{text-align:center; color:var(--gold); font-weight:900; font-size:13px;
     letter-spacing:.6px; margin:-4px 0 9px; text-shadow:0 0 16px #d8b26a55}
-  .whowon{color:var(--gold); font-weight:900; font-size:15px; text-align:center;
-    font-variant-numeric:tabular-nums}
+  .wonline{display:flex; flex-direction:column; gap:2px; margin-top:8px}
+  .wonline span{color:#ffe08a; font-size:12px; font-weight:800; font-variant-numeric:tabular-nums;
+    text-shadow:0 1px 6px #000; animation:fadeIn .4s both}
+  .wonline b{color:#fff}
+  .dealwait{color:var(--gold); font-size:12px; font-weight:800; letter-spacing:1px; margin-top:10px;
+    text-transform:uppercase; opacity:.9}
+  .logbtn{position:absolute; left:12px; bottom:calc(12px + env(safe-area-inset-bottom)); z-index:6;
+    padding:9px 15px; border-radius:999px; font-size:12px; font-weight:800; letter-spacing:.5px;
+    background:#00000088; color:var(--gold); border:1px solid #d8b26a55; backdrop-filter:blur(4px)}
+  .logstreet{color:var(--muted); font-size:10px; letter-spacing:2px; margin:10px 0 2px}
   .logsheet{position:fixed; inset:0; z-index:30; background:#000000a8; backdrop-filter:blur(2px);
     display:grid; place-items:center; padding:18px; animation:fadeIn .2s both}
   .logcard{width:min(420px,100%); max-height:72vh; overflow:auto; padding:14px; border-radius:16px;
@@ -219,7 +227,8 @@
     padding:12px; animation:popIn .45s cubic-bezier(.2,1.5,.4,1) both; box-shadow:0 16px 40px #0007}
   @keyframes popIn{from{opacity:0; transform:translateY(18px) scale(.94)} to{opacity:1; transform:none}}
   .results .potline{color:var(--gold); font-weight:800; animation:fadeIn .4s .1s both}
-  .wait{color:var(--muted); font-size:13px; padding:7px 0; display:flex; align-items:center; gap:8px}
+  .wait{color:var(--muted); font-size:13px; padding:7px 0; display:flex; align-items:center; gap:8px;
+    justify-content:center}
   .dots i{display:inline-block; width:4px; height:4px; margin-right:3px; border-radius:50%;
     background:var(--muted); animation:dot 1.2s infinite}
   .dots i:nth-child(2){animation-delay:.15s} .dots i:nth-child(3){animation-delay:.3s}
@@ -298,8 +307,10 @@
 <script>
 "use strict";
 
-// Publishable key. RLS and the poker function gate every read and write.
-const BASE = "https://hqohtvmfrbeausylxgkr.supabase.co";
+// Same box as the engine now. `?local` points the page at the dev port.
+const BASE = location.search.includes("local")
+  ? "http://127.0.0.1:8787"
+  : "https://mingy.tech/holdem-api";
 const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhxb2h0dm1mcmJlYXVzeWx4Z2tyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM3OTEyMTYsImV4cCI6MjEwOTM2NzIxNn0.-s6JEonKk5EcvoJM4vGbe4xNbZiKrmKLsrI95MDLe5Q";
 
 const app = document.getElementById("app");
@@ -316,7 +327,8 @@ let pendingFloat = null;
 let autoNextAt = 0;   // when the next hand deals itself
 let logOpen = false;
 const TURN_SEC = 30;
-const AUTO_NEXT_MS = 3500;
+const AUTO_NEXT_MS = 3500;   // between hands
+const AUTO_START_MS = 5000;  // first hand at a table that just became ready
 
 // ---------------------------------------------------------------- ambience
 
@@ -511,6 +523,16 @@ function mySeat() {
   return view?.seats.find((s) => s.playerId === S.uid)?.seat ?? -1;
 }
 
+/** Removed from the table from the server's side: drop back to the lobby. */
+function kickHome() {
+  const r = room;
+  gen++;
+  room = null; view = null; raiseTo = null; lastSig = ""; pendingFloat = null;
+  autoNextAt = 0; logOpen = false;
+  err = r ? "You were removed from that table for inactivity." : "";
+  loadLobby().catch(() => {}).finally(() => render(true));
+}
+
 function startPolling() {
   const g = ++gen;
   const loop = async () => {
@@ -521,6 +543,11 @@ function startPolling() {
       const stale = cur && inc && (inc.handNo < cur.handNo || (inc.handNo === cur.handNo && inc.version < cur.version));
       if (!stale) { view = v; err = ""; }
       if (v.serverNow) skew = Date.parse(v.serverNow) - Date.now();
+      // Kicked for inactivity: the seat row is gone while the hand still lists me.
+      if (v.hand?.you && !(v.seats || []).some((s) => s.playerId === S.uid)) {
+        kickHome();
+        return;
+      }
       // Idle clock: ask the server to fold whoever ran out. The server re-checks
       // and version-guards the write, so every client can ask at once.
       const hh = v.hand;
@@ -532,7 +559,7 @@ function startPolling() {
       }
       // Hands deal themselves. Every client asks; unique(room_id, hand_no)
       // makes the losers of the race harmless.
-      if (hh && hh.street === "complete" && autoNextAt && now() > autoNextAt) {
+      if ((!hh || hh.street === "complete") && autoNextAt && now() > autoNextAt) {
         autoNextAt = null;
         send({ op: "next", room: room.id });
       }
@@ -774,28 +801,17 @@ function tableHTML() {
     raiseTo = you.minRaiseTo;
   }
 
+  const ready = (view?.seats || []).filter((s) => s.stack > 0).length >= 2;
   let bottom = "";
   if (err) bottom += `<div class="err">${esc(err)}</div>`;
 
-  if (!h) {
-    bottom += `<button class="primary" style="width:100%" onclick="deal()" ${busy ? "disabled" : ""}>Deal first hand</button>`;
-  } else if (h.street === "complete") {
-    const nm = (s) => esc(names[s] || "Seat " + (s + 1));
-    const bySeat = new Map();
-    for (const p of h.results?.pots || []) {
-      for (const w of p.winners) bySeat.set(w.seat, (bySeat.get(w.seat) || 0) + w.amount);
-    }
-    const summary = [...bySeat].map(([s, a]) => `${nm(s)} +${a}`).join(" · ") || "no pot";
-    bottom += `<div class="results">
-      <div class="whowon">${summary}</div>
-      <div class="row" style="margin-top:9px">
-        <button class="ghost" onclick="openLog()">Hand log</button>
-        <button class="primary" onclick="deal()" ${busy ? "disabled" : ""}>Deal now</button>
-      </div>
-      <div class="muted" style="font-size:11px;text-align:center;margin-top:7px">next hand in <span id="nextIn">–</span>s</div></div>`;
-  } else if (!you) {
+  if (h && !you) {
     bottom += `<div class="row"><span class="wait" style="flex:2">Sitting out — no chips</span>
       <button onclick="rebuy()" ${busy ? "disabled" : ""}>Rebuy ${50 * room.bb}</button></div>`;
+  } else if (h && h.street === "complete") {
+    // nothing to press: the next hand deals itself
+  } else if (!h) {
+    // same here; the countdown is on the felt
   } else if (myTurn) {
     if (canRaise) {
       bottom += `<div class="raisebox">
@@ -823,6 +839,11 @@ function tableHTML() {
     return `<div class="betchip" style="left:${at.bx.toFixed(2)}%;top:${at.by.toFixed(2)}%" title="bet this street">${ps.bet}</div>`;
   }).join("");
 
+  const wonBy = new Map();
+  for (const p of h?.results?.pots || []) {
+    for (const w of p.winners) wonBy.set(w.seat, (wonBy.get(w.seat) || 0) + w.amount);
+  }
+
   const board = [0, 1, 2, 3, 4].map((i) => {
     const c = h?.board?.[i];
     const fresh = i >= snap.board && c;   // only the new cards animate
@@ -838,6 +859,7 @@ function tableHTML() {
         <button class="ghost" onclick="leave()" style="padding:6px 12px">Leave</button>
       </div>
     </div>
+    <button class="logbtn" onclick="openLog()">Log</button>
     <div class="felt ${myTurn ? "turn" : ""}"></div>
     ${seatEls}
     ${chips}
@@ -848,6 +870,11 @@ function tableHTML() {
       </div>
       <div class="board">${board}</div>
       ${h && h.street !== "complete" ? `<div class="street"><span>${esc(h.street.toUpperCase())}</span></div>` : ""}
+      ${!h || h.street === "complete" ? (ready
+        ? `<div class="dealwait">dealing in <span id="nextIn">…</span>s</div>`
+        : `<div class="dealwait">waiting for another player</div>`) : ""}
+      ${wonBy.size ? `<div class="wonline">${[...wonBy]
+        .map(([s, a]) => `<span>${esc(names[s] || "Seat " + (s + 1))} <b>+${a}</b></span>`).join("")}</div>` : ""}
     </div>
     <div class="bottom ${myTurn ? "myturn" : ""}">
       ${you?.hole?.length ? `<div class="mycards">${you.hole.map((c, i) => cardHTML(c, "lg" + (used.has(c) ? " hl" : ""), i)).join("")}</div>` : ""}
@@ -860,20 +887,35 @@ function tableHTML() {
 /** The showdown details live here, not on the table. */
 function logHTML(h, names) {
   const nm = (s) => esc(names[s] || "Seat " + (s + 1));
-  const pots = h.results?.pots || [];
+  const body = [];
+  let street = null;
+  for (const e of h?.log || []) {
+    if (e.street !== street) {
+      street = e.street;
+      body.push(`<div class="logstreet">${esc(street.toUpperCase())}</div>`);
+    }
+    const what = e.type === "raise" ? `raises to ${e.amount}`
+      : e.type === "call" ? `calls ${e.amount}`
+      : e.type;
+    body.push(`<div class="logrow"><span>${nm(e.seat)}</span><span class="gold">${esc(what)}</span></div>`);
+  }
+  if (!body.length) body.push(`<div class="logrow"><span>no actions yet</span><span></span></div>`);
+
+  const pots = h?.results?.pots || [];
   const potRows = pots.map((p, i) => `
     <div class="logrow"><span>${pots.length > 1 ? `Pot ${i + 1}` : "Pot"} · ${p.amount}</span>
       <span class="gold">${p.winners.map((w) => `${nm(w.seat)} +${w.amount}`).join(", ")}</span></div>`).join("");
-  const handRows = (h.results?.revealed || []).map((r) => `
+  const handRows = (h?.results?.revealed || []).map((r) => `
     <div class="logrow"><span>${nm(r.seat)} · ${esc(r.hole.join(" "))}</span>
       <span class="gold">${esc(r.best?.name || "")}</span></div>`).join("");
+
   return `<div class="logsheet" onclick="if(event.target===this)closeLog()">
     <div class="logcard">
-      <div class="loghead"><b>Hand ${h.handNo}</b>
+      <div class="loghead"><b>${h ? `Hand ${h.handNo}` : "Log"}</b>
         <button class="ghost" style="padding:5px 11px" onclick="closeLog()">Close</button></div>
-      <div class="logsub">Board ${esc((h.board || []).join(" ") || "—")}</div>
-      ${potRows || '<div class="logrow"><span>nobody showed</span><span></span></div>'}
-      ${handRows}
+      <div class="logsub">${h ? `Board ${esc((h.board || []).join(" ") || "—")} · pot ${h.pot}` : "no hand yet"}</div>
+      ${body.join("")}
+      ${potRows ? `<div class="logstreet">RESULT</div>${potRows}${handRows}` : ""}
     </div></div>`;
 }
 
@@ -927,10 +969,12 @@ function paint(force = false) {
 
   if (room) {
     const h = view?.hand;
-    // A finished hand deals itself once there are two stacks to play with.
-    if (h && h.street === "complete" && !autoNextAt &&
-        (view.seats || []).filter((s) => s.stack > 0).length >= 2) {
-      autoNextAt = now() + AUTO_NEXT_MS;
+    // A table with chips and no live hand deals itself: 5s the first time,
+    // 3.5s between hands so there is a beat to read the result.
+    const ready = (view.seats || []).filter((s) => s.stack > 0).length >= 2;
+    if (!h || h.street === "complete") {
+      if (ready && !autoNextAt) autoNextAt = now() + (h ? AUTO_NEXT_MS : AUTO_START_MS);
+      if (!ready) autoNextAt = 0;
     }
     app.innerHTML = tableHTML();
 
