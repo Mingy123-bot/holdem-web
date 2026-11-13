@@ -127,6 +127,34 @@
   .seat.me .nm{color:var(--gold)}
   .seat .st{font-weight:800; font-size:15px; color:#fff; font-variant-numeric:tabular-nums}
   .seat .bet{color:var(--gold); font-size:10px; font-variant-numeric:tabular-nums}
+  /* bet this street, in a chip in front of the player */
+  .betchip{position:absolute; transform:translate(-50%,-50%); width:34px; height:34px; border-radius:50%;
+    display:grid; place-items:center; font-size:11px; font-weight:900; color:#3a2c12; z-index:3;
+    background:radial-gradient(circle at 35% 30%, #fff4d0, #d8b26a 62%, #9a7c3f);
+    box-shadow:0 4px 10px #0008, inset 0 0 0 2px #ffffff66;
+    font-variant-numeric:tabular-nums; animation:chipIn .28s both}
+  .betchip::after{content:""; position:absolute; inset:3px; border-radius:50%; border:1px dashed #00000033}
+  .won{position:absolute; left:50%; top:-15px; transform:translateX(-50%); z-index:5;
+    background:linear-gradient(#ffe9a8,#d8b26a); color:#1a1a1a; font-weight:900; font-size:11px;
+    padding:1px 8px; border-radius:999px; box-shadow:0 2px 8px #0007;
+    font-variant-numeric:tabular-nums; animation:popIn .4s cubic-bezier(.2,1.5,.4,1) both}
+  .handname{color:#ffe08a; font-size:10px; font-weight:800; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; margin-top:1px}
+  .tsec{position:absolute; right:6px; bottom:-20px; font-size:11px; font-weight:900; color:#ffd76a;
+    text-shadow:0 1px 5px #000; font-variant-numeric:tabular-nums}
+  .myhand{text-align:center; color:var(--gold); font-weight:900; font-size:13px;
+    letter-spacing:.6px; margin:-4px 0 9px; text-shadow:0 0 16px #d8b26a55}
+  .whowon{color:var(--gold); font-weight:900; font-size:15px; text-align:center;
+    font-variant-numeric:tabular-nums}
+  .logsheet{position:fixed; inset:0; z-index:30; background:#000000a8; backdrop-filter:blur(2px);
+    display:grid; place-items:center; padding:18px; animation:fadeIn .2s both}
+  .logcard{width:min(420px,100%); max-height:72vh; overflow:auto; padding:14px; border-radius:16px;
+    background:linear-gradient(#12352b,#081c16); border:1px solid #d8b26a55; box-shadow:0 24px 60px #000c}
+  .loghead{display:flex; justify-content:space-between; align-items:center; color:var(--gold)}
+  .logsub{color:var(--muted); font-size:11px; margin:4px 0 10px}
+  .logrow{display:flex; justify-content:space-between; gap:12px; font-size:13px;
+    padding:6px 0; border-top:1px solid #ffffff10}
+  .logrow .gold{color:var(--gold); font-weight:800; white-space:nowrap}
   .seat .allin{color:#ffb74d; font-size:10px; font-weight:800; animation:blink 1s steps(2) infinite}
   @keyframes blink{50%{opacity:.35}}
   .dbtn{position:absolute; right:-7px; top:-7px; width:19px; height:19px; border-radius:50%;
@@ -218,6 +246,9 @@
   .card.xs{width:20px; height:28px; border-radius:3px; gap:0}
   .card.xs b{font-size:9px} .card.xs i{font-size:7px}
   .card.xs::after{display:none}
+  /* the five that currently play */
+  .card.hl{outline:2px solid var(--gold); outline-offset:1px;
+    filter:drop-shadow(0 0 7px #d8b26a99)}
 
   /* ---------- effects ---------- */
   .confetti{position:fixed; width:9px; height:14px; border-radius:2px; z-index:20; pointer-events:none;
@@ -282,6 +313,10 @@ let err = "", busy = false, dragging = false, raiseTo = null;
 let gen = 0;
 let lastSig = "";
 let pendingFloat = null;
+let autoNextAt = 0;   // when the next hand deals itself
+let logOpen = false;
+const TURN_SEC = 30;
+const AUTO_NEXT_MS = 3500;
 
 // ---------------------------------------------------------------- ambience
 
@@ -464,7 +499,7 @@ window.sit = async (roomId, buyin) => {
 window.leave = async () => {
   gen++;
   const r = room;
-  room = null; view = null; raiseTo = null; lastSig = ""; pendingFloat = null;
+  room = null; view = null; raiseTo = null; lastSig = ""; pendingFloat = null; autoNextAt = 0; logOpen = false;
   try { if (r) await rpc("leave_table", { p_room: r.id }); } catch (e) { err = e.message; }
   try { await loadLobby(); } catch (e) { err = e.message; }
   render(true);
@@ -485,14 +520,21 @@ function startPolling() {
       const cur = view?.hand, inc = v.hand;
       const stale = cur && inc && (inc.handNo < cur.handNo || (inc.handNo === cur.handNo && inc.version < cur.version));
       if (!stale) { view = v; err = ""; }
+      if (v.serverNow) skew = Date.parse(v.serverNow) - Date.now();
       // Idle clock: ask the server to fold whoever ran out. The server re-checks
       // and version-guards the write, so every client can ask at once.
       const hh = v.hand;
       if (hh && hh.street !== "complete" && hh.actingAt &&
-          Date.now() - Date.parse(hh.actingAt) > 32000) {
+          now() - Date.parse(hh.actingAt) > (TURN_SEC + 2) * 1000) {
         poker({ op: "sweep", room: room.id })
           .then((r) => { if (r && r.view) { view = r.view; refreshTable(); } })
           .catch(() => {});
+      }
+      // Hands deal themselves. Every client asks; unique(room_id, hand_no)
+      // makes the losers of the race harmless.
+      if (hh && hh.street === "complete" && autoNextAt && now() > autoNextAt) {
+        autoNextAt = null;
+        send({ op: "next", room: room.id });
       }
     } catch (e) { err = e.message; }
     refreshTable();
@@ -536,7 +578,7 @@ window.act = (type, to) => {
   send({ op: "act", room: room.id, action: type === "raise" ? { type, to } : { type } });
 };
 
-window.deal = () => send({ op: "next", room: room.id });
+window.deal = () => { autoNextAt = 0; send({ op: "next", room: room.id }); };
 window.rebuy = async () => {
   if (busy) return;
   busy = true;
@@ -564,6 +606,23 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// ---------------------------------------------------------------- clock
+
+/** Server clock, not the phone's: a wrong local clock must not fake a timeout. */
+let skew = 0;
+function now() { return Date.now() + skew; }
+function left(waitedSec) { return Math.max(0, Math.ceil(TURN_SEC - waitedSec)); }
+
+// The countdown ticks without a re-render: one interval rewrites the numbers.
+setInterval(() => {
+  document.querySelectorAll(".tsec[data-act]").forEach((el) => {
+    const t = Date.parse(el.getAttribute("data-act"));
+    if (!Number.isNaN(t)) el.textContent = left((now() - t) / 1000) + "s";
+  });
+  const nx = document.getElementById("nextIn");
+  if (nx) nx.textContent = autoNextAt ? String(Math.max(0, Math.ceil((autoNextAt - now()) / 1000))) : "–";
+}, 400);
+
 let GEO = null;
 function geo() {
   if (GEO) return GEO;
@@ -584,7 +643,9 @@ function ringPositions() {
   const pos = new Map();
   ring.forEach((seat, i) => {
     const ang = ((90 + i * (360 / ring.length)) * Math.PI) / 180;
-    pos.set(seat, { x: 50 + g.rx * Math.cos(ang), y: g.cy + g.ry * Math.sin(ang), slot: i });
+    const x = 50 + g.rx * Math.cos(ang), y = g.cy + g.ry * Math.sin(ang);
+    // the bet chip sits a third of the way from the seat to the pot
+    pos.set(seat, { x, y, bx: x + (50 - x) * 0.34, by: y + (g.cy - y) * 0.34, slot: i });
   });
   return pos;
 }
@@ -658,22 +719,26 @@ function shakeScreen() {
 function seatHTML(seatIdx, info, h, me, at) {
   const ps = h?.players?.find((p) => p.seat === seatIdx);
   const x = at?.x ?? 50, y = at?.y ?? 50;
-  const winners = (h?.results?.pots || []).flatMap((p) => p.winners.map((w) => w.seat));
+  const wonAt = (h?.results?.pots || []).reduce((a, p) => {
+    const w = p.winners.find((w) => w.seat === seatIdx);
+    return a + (w ? w.amount : 0);
+  }, 0);
   const cls = ["seat"];
   if (seatIdx === me) cls.push("me");
   const isTurn = !!(h && h.street !== "complete" && h.toAct === seatIdx);
   if (isTurn) cls.push("turn");
   if (ps?.folded) cls.push("folded");
-  if (h?.street === "complete" && winners.includes(seatIdx)) cls.push("win");
+  if (h?.street === "complete" && wonAt > 0) cls.push("win");
 
-  const revealed = seatIdx === me ? [] : (h?.results?.revealed?.find((r) => r.seat === seatIdx)?.hole || []);
+  const rev = seatIdx === me ? null : (h?.results?.revealed?.find((r) => r.seat === seatIdx) || null);
+  const revealed = rev?.hole || [];
   // a new hand's blinds are not actions: only label deltas within the same hand
   const sameHand = h && h.handNo === snap.handNo;
   const label = !sameHand ? null
     : pendingFloat?.seat === seatIdx ? pendingFloat.label
     : seatFloat(ps, seatIdx);
   // seek the bar into the animation instead of restarting it on every rebuild
-  const waited = h?.actingAt ? Math.max(0, (Date.now() - Date.parse(h.actingAt)) / 1000) : 0;
+  const waited = h?.actingAt ? Math.max(0, (now() - Date.parse(h.actingAt)) / 1000) : 0;
   const warn = (info.timeouts ?? 0) > 0 ? '<span class="warn">⚠</span>' : "";
   const who = info.name || "Seat " + (seatIdx + 1);
 
@@ -681,12 +746,15 @@ function seatHTML(seatIdx, info, h, me, at) {
     <div class="${cls.join(" ")}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%;--si:${at?.slot ?? 0}">
       ${h && h.dealer === seatIdx ? '<div class="dbtn">D</div>' : ""}
       ${label ? `<div class="float">${esc(label)}</div>` : ""}
-      ${isTurn ? `<div class="timer"><i style="animation-delay:-${waited.toFixed(1)}s"></i></div>` : ""}
+      ${wonAt > 0 ? `<div class="won">+${wonAt}</div>` : ""}
       <div class="head"><div class="av">${esc(who.slice(0, 1).toUpperCase())}</div>
         <div class="nm">${esc(who)}</div>${warn}</div>
       <div class="st">${ps?.stack ?? info.stack}</div>
-      ${ps?.bet > 0 ? `<div class="bet">bet ${ps.bet}</div>` : ps?.allIn ? '<div class="allin">ALL IN</div>' : ""}
-      ${revealed.length ? `<div class="holemini">${revealed.map((c, i) => cardHTML(c, "xs", i)).join("")}</div>` : ""}
+      ${ps?.allIn ? '<div class="allin">ALL IN</div>' : ""}
+      ${rev?.best?.name ? `<div class="handname">${esc(rev.best.name)}</div>` : ""}
+      ${revealed.length ? `<div class="holemini">${revealed.map((c, i) => cardHTML(c, "xs" + (rev.best?.cards?.includes(c) ? " hl" : ""), i)).join("")}</div>` : ""}
+      ${isTurn ? `<div class="timer"><i style="animation-delay:-${waited.toFixed(1)}s"></i></div>
+        <div class="tsec" data-act="${esc(h.actingAt || "")}">${left(waited)}s</div>` : ""}
     </div>`;
 }
 
@@ -712,11 +780,19 @@ function tableHTML() {
   if (!h) {
     bottom += `<button class="primary" style="width:100%" onclick="deal()" ${busy ? "disabled" : ""}>Deal first hand</button>`;
   } else if (h.street === "complete") {
-    const pots = (h.results?.pots || [])
-      .map((p) => `<div class="potline">Pot ${p.amount} · ${p.winners.map((w) => `${esc(names[w.seat] || "Seat " + (w.seat + 1))} +${w.amount}`).join(", ")}</div>`)
-      .join("");
-    bottom += `<div class="results"><span class="muted" style="font-size:11px">Hand ${h.handNo}</span>${pots}
-      <button class="primary" style="width:100%;margin-top:10px" onclick="deal()" ${busy ? "disabled" : ""}>Deal next hand</button></div>`;
+    const nm = (s) => esc(names[s] || "Seat " + (s + 1));
+    const bySeat = new Map();
+    for (const p of h.results?.pots || []) {
+      for (const w of p.winners) bySeat.set(w.seat, (bySeat.get(w.seat) || 0) + w.amount);
+    }
+    const summary = [...bySeat].map(([s, a]) => `${nm(s)} +${a}`).join(" · ") || "no pot";
+    bottom += `<div class="results">
+      <div class="whowon">${summary}</div>
+      <div class="row" style="margin-top:9px">
+        <button class="ghost" onclick="openLog()">Hand log</button>
+        <button class="primary" onclick="deal()" ${busy ? "disabled" : ""}>Deal now</button>
+      </div>
+      <div class="muted" style="font-size:11px;text-align:center;margin-top:7px">next hand in <span id="nextIn">–</span>s</div></div>`;
   } else if (!you) {
     bottom += `<div class="row"><span class="wait" style="flex:2">Sitting out — no chips</span>
       <button onclick="rebuy()" ${busy ? "disabled" : ""}>Rebuy ${50 * room.bb}</button></div>`;
@@ -739,10 +815,18 @@ function tableHTML() {
       Waiting for ${esc(names[h.toAct] || "the next player")}…</div>`;
   }
 
+  const used = new Set(you?.best?.cards || []);
+  const chips = (view?.seats || []).map((info) => {
+    const ps = h?.players?.find((p) => p.seat === info.seat);
+    const at = pos.get(info.seat);
+    if (!ps?.bet || !at) return "";
+    return `<div class="betchip" style="left:${at.bx.toFixed(2)}%;top:${at.by.toFixed(2)}%" title="bet this street">${ps.bet}</div>`;
+  }).join("");
+
   const board = [0, 1, 2, 3, 4].map((i) => {
     const c = h?.board?.[i];
     const fresh = i >= snap.board && c;   // only the new cards animate
-    return cardHTML(c, fresh ? "flip" : "", i);
+    return cardHTML(c, [fresh ? "flip" : "", used.has(c) ? "hl" : ""].join(" "), i);
   }).join("");
 
   return `
@@ -756,6 +840,7 @@ function tableHTML() {
     </div>
     <div class="felt ${myTurn ? "turn" : ""}"></div>
     ${seatEls}
+    ${chips}
     <div class="center">
       <div class="potwrap">
         <div class="chips"><i></i><i></i><i></i></div>
@@ -765,10 +850,35 @@ function tableHTML() {
       ${h && h.street !== "complete" ? `<div class="street"><span>${esc(h.street.toUpperCase())}</span></div>` : ""}
     </div>
     <div class="bottom ${myTurn ? "myturn" : ""}">
-      ${you?.hole?.length ? `<div class="mycards">${you.hole.map((c, i) => cardHTML(c, "lg", i)).join("")}</div>` : ""}
+      ${you?.hole?.length ? `<div class="mycards">${you.hole.map((c, i) => cardHTML(c, "lg" + (used.has(c) ? " hl" : ""), i)).join("")}</div>` : ""}
+      ${you?.best?.name ? `<div class="myhand">${esc(you.best.name)}</div>` : ""}
       ${bottom}
-    </div>`;
+    </div>
+    ${logOpen ? logHTML(h, names) : ""}`;
 }
+
+/** The showdown details live here, not on the table. */
+function logHTML(h, names) {
+  const nm = (s) => esc(names[s] || "Seat " + (s + 1));
+  const pots = h.results?.pots || [];
+  const potRows = pots.map((p, i) => `
+    <div class="logrow"><span>${pots.length > 1 ? `Pot ${i + 1}` : "Pot"} · ${p.amount}</span>
+      <span class="gold">${p.winners.map((w) => `${nm(w.seat)} +${w.amount}`).join(", ")}</span></div>`).join("");
+  const handRows = (h.results?.revealed || []).map((r) => `
+    <div class="logrow"><span>${nm(r.seat)} · ${esc(r.hole.join(" "))}</span>
+      <span class="gold">${esc(r.best?.name || "")}</span></div>`).join("");
+  return `<div class="logsheet" onclick="if(event.target===this)closeLog()">
+    <div class="logcard">
+      <div class="loghead"><b>Hand ${h.handNo}</b>
+        <button class="ghost" style="padding:5px 11px" onclick="closeLog()">Close</button></div>
+      <div class="logsub">Board ${esc((h.board || []).join(" ") || "—")}</div>
+      ${potRows || '<div class="logrow"><span>nobody showed</span><span></span></div>'}
+      ${handRows}
+    </div></div>`;
+}
+
+window.openLog = () => { logOpen = true; render(true); };
+window.closeLog = () => { logOpen = false; render(true); };
 
 function refreshTable() {
   if (dragging) return;
@@ -817,6 +927,11 @@ function paint(force = false) {
 
   if (room) {
     const h = view?.hand;
+    // A finished hand deals itself once there are two stacks to play with.
+    if (h && h.street === "complete" && !autoNextAt &&
+        (view.seats || []).filter((s) => s.stack > 0).length >= 2) {
+      autoNextAt = now() + AUTO_NEXT_MS;
+    }
     app.innerHTML = tableHTML();
 
     // ---- effects, once per state change (render only runs when state moved)
