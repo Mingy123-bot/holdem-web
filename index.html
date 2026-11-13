@@ -317,7 +317,7 @@ const app = document.getElementById("app");
 const STORE_SESSION = "holdem.session";
 const STORE_NAME = "holdem.name";
 
-let S = { access: null, refresh: null, uid: null };
+let S = { access: null, uid: null };  // an account is just its uid
 let name = localStorage.getItem(STORE_NAME) || "";
 let rooms = [], seats = [], room = null, view = null;
 let err = "", busy = false, dragging = false, raiseTo = null;
@@ -414,40 +414,34 @@ async function api(path, { method = "POST", body = null, token = null } = {}) {
 
 function adopt(session) {
   S.access = session.access_token;
-  S.refresh = session.refresh_token;
-  localStorage.setItem(STORE_SESSION, JSON.stringify({ refresh: S.refresh }));
-  S.uid = session.user?.id ?? S.uid ?? null;
-  if (!S.uid) {
+  S.uid = session.user?.id ?? S.access;
+  localStorage.setItem(STORE_SESSION, S.access);
+}
+
+const rpc = (fn, body) => api(`/rest/v1/rpc/${fn}`, { body, token: S.access });
+const poker = (body) => api("/functions/v1/poker", { body, token: S.access });
+
+/** A saved uid is the whole session; only a 401 means it is gone for good. */
+async function ensureSession() {
+  const saved = localStorage.getItem(STORE_SESSION);
+  if (saved) {
+    S.access = S.uid = saved;
     try {
-      const b64 = S.access.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-      S.uid = JSON.parse(atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4))).sub ?? null;
-    } catch { S.uid = null; }
+      await api("/rest/v1/rpc/hello", { body: { p_name: name }, token: saved });
+      return;
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 401) throw e;
+    }
   }
+  localStorage.removeItem(STORE_SESSION);
+  adopt(await api("/auth/v1/signup", { body: {} }));
+  if (name) await api("/rest/v1/rpc/hello", { body: { p_name: name }, token: S.access });
 }
-
-async function authed(fn) {
-  try {
-    return await fn(S.access);
-  } catch (e) {
-    if (!(e instanceof ApiError) || e.status !== 401 || !S.refresh) throw e;
-    adopt(await api("/auth/v1/token?grant_type=refresh_token", { body: { refresh_token: S.refresh } }));
-    return await fn(S.access);
-  }
-}
-
-const rpc = (fn, body) => authed((t) => api(`/rest/v1/rpc/${fn}`, { body, token: t }));
-const poker = (body) => authed((t) => api("/functions/v1/poker", { body, token: t }));
 
 // ---------------------------------------------------------------- boot
 
 async function boot() {
-  const saved = JSON.parse(localStorage.getItem(STORE_SESSION) || "null");
-  if (saved?.refresh) {
-    try { adopt(await api("/auth/v1/token?grant_type=refresh_token", { body: { refresh_token: saved.refresh } })); }
-    catch { localStorage.removeItem(STORE_SESSION); }
-  }
-  if (!S.access) adopt(await api("/auth/v1/signup", { body: {} }));
-  if (name) { try { await rpc("hello", { p_name: name }); } catch { /* cosmetic */ } }
+  await ensureSession();
   await loadLobby();
 
   // Reconnect: a refresh or a locked phone must land you back at your table.
@@ -464,8 +458,8 @@ async function boot() {
 
 async function loadLobby() {
   [rooms, seats] = await Promise.all([
-    authed((t) => api("/rest/v1/rooms?select=id,name,sb,bb&order=sb", { method: "GET", token: t })),
-    authed((t) => api("/rest/v1/seats?select=room_id,seat,player_id,stack", { method: "GET", token: t })),
+    api("/rest/v1/rooms?select=id,name,sb,bb&order=sb", { method: "GET" }),
+    api("/rest/v1/seats?select=room_id,seat,player_id,stack", { method: "GET" }),
   ]);
 }
 
