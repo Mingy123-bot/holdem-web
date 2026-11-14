@@ -164,7 +164,7 @@
   .wonline b{color:#fff}
   .dealwait{color:var(--gold); font-size:12px; font-weight:800; letter-spacing:1px; margin-top:10px;
     text-transform:uppercase; opacity:.9}
-  .logbtn{position:absolute; left:12px; bottom:calc(12px + env(safe-area-inset-bottom)); z-index:6;
+  .logbtn{position:absolute; left:10px; bottom:calc(96px + env(safe-area-inset-bottom)); z-index:6;
     padding:9px 15px; border-radius:999px; font-size:12px; font-weight:800; letter-spacing:.5px;
     background:#00000088; color:var(--gold); border:1px solid #d8b26a55; backdrop-filter:blur(4px)}
   .logstreet{color:var(--muted); font-size:10px; letter-spacing:2px; margin:10px 0 2px}
@@ -215,27 +215,35 @@
   @keyframes fadeIn{from{opacity:0} to{opacity:1}}
 
   /* ---------- bottom ---------- */
-  .bottom{position:absolute; left:0; right:0; bottom:0; padding:10px 14px calc(12px + env(safe-area-inset-bottom));
-    z-index:4}
-  .mycards{display:flex; gap:8px; justify-content:center; margin-bottom:12px}
+  .bottom{position:absolute; left:0; right:0; bottom:0; padding:6px 14px calc(10px + env(safe-area-inset-bottom));
+    z-index:4; pointer-events:none}
+  .mycards{display:flex; gap:8px; justify-content:center}
   .mycards .card{animation:dealIn .45s cubic-bezier(.2,.9,.3,1.3) both; animation-delay:calc(var(--i,0)*110ms);
     box-shadow:0 12px 26px #0008, 0 0 0 1px #ffffff22}
   @keyframes dealIn{from{opacity:0; transform:translateY(-56px) rotate(-10deg) scale(.7)} to{opacity:1; transform:none}}
-  .row{display:flex; gap:8px}
-  .row > *{flex:1}
-  .raisebox{display:flex; align-items:center; gap:10px; margin-bottom:9px;
-    background:#0000003d; border:1px solid #ffffff12; border-radius:12px; padding:6px 11px}
-  .raisebox input[type=range]{flex:1; accent-color:var(--gold); height:22px}
-  .raisebox .amt{color:var(--gold); font-weight:900; min-width:56px; text-align:right; font-variant-numeric:tabular-nums}
-  .bottom.myturn .row button{filter:brightness(1.15);
-    box-shadow:0 0 30px #d8b26a55, 0 6px 18px #0006}
-  .bottom.myturn .row button.call{background:linear-gradient(#4cc79a,#2c8a66);
-    box-shadow:0 0 34px #3fd39a77, inset 0 1px 0 #fff5}
-  .bottom.myturn .row button.primary{box-shadow:0 0 40px #f5cf8aa8, inset 0 1px 0 #fff9}
-  .bottom.myturn .row button.ghost{background:#ffffff12; border-color:#ffffff2e; color:#cfe0d5;
-    box-shadow:none; filter:none}
-  .bottom .row button.ghost{flex:.85}
-  .bottom .row button.call,.bottom .row button.primary{flex:1.15}
+  .row{display:flex; gap:8px; justify-content:center; align-items:center}
+  .status{position:absolute; left:50%; transform:translateX(-50%); z-index:9;
+    bottom:calc(128px + env(safe-area-inset-bottom)); width:max-content; max-width:92%; text-align:center}
+
+  /* ---------- action corners: fixed, so the felt never moves ---------- */
+  .corner{position:absolute; bottom:calc(10px + env(safe-area-inset-bottom)); z-index:12; width:104px;
+    display:flex; flex-direction:column; gap:6px;
+    transition:opacity .18s ease, transform .18s ease}
+  .corner.l{left:10px}
+  .corner.r{right:10px}
+  .corner.off{opacity:0; transform:translateY(8px); pointer-events:none}
+  .corner button{height:34px; border-radius:11px; font-size:13px; font-weight:800; padding:0 6px}
+  .corner.l button.call{background:linear-gradient(#4cc79a,#2c8a66); color:#04201a;
+    box-shadow:0 0 22px #3fd39a55, inset 0 1px 0 #fff5}
+  .corner.r button.primary{background:linear-gradient(#f6dfae,#c99f52); color:#241a06;
+    box-shadow:0 0 26px #f5cf8a99, inset 0 1px 0 #fff9}
+  .corner .step{font-size:18px; line-height:1; padding:0; touch-action:none; user-select:none;
+    -webkit-user-select:none}
+  .corner input{height:34px; width:100%; text-align:center; font:inherit; font-weight:900; font-size:16px;
+    color:var(--gold); background:#0a1f19; border:1px solid #ffffff26; border-radius:11px;
+    font-variant-numeric:tabular-nums; appearance:textfield; -moz-appearance:textfield}
+  .corner input::-webkit-outer-spin-button,.corner input::-webkit-inner-spin-button{
+    -webkit-appearance:none; margin:0}
   #pullSpin{position:fixed; left:50%; top:calc(8px + env(safe-area-inset-top)); width:24px; height:24px;
     margin-left:-12px; border-radius:50%; border:2px solid #d8b26a3d; border-top-color:var(--gold);
     opacity:0; z-index:30; pointer-events:none; will-change:transform,opacity}
@@ -341,7 +349,7 @@ let rooms = [], me = null, room = null, view = null;
 let balance = 0, presets = [];
 let rabbit = null;      // the board this hand never dealt, once revealed
 let ledger = [];        // this table's session, from the server
-let err = "", busy = false, dragging = false, raiseTo = null;
+let err = "", busy = false, raiseTo = null, lastTurnKey = "";
 let gen = 0;
 let lastSig = "";
 let pendingFloat = null;
@@ -670,11 +678,39 @@ window.rebuy = async () => {
   refreshTable();
 };
 
-window.setRaise = (v) => {
-  raiseTo = Number(v);
-  const el = document.getElementById("raiseAmt");
-  if (el) el.textContent = raiseTo;
+// The betting corner. Typing is free-form; every path out of it is clamped to
+// the table's legal range, and holding a step button repeats it.
+const amtLimits = () => {
+  const y = view?.hand?.you;
+  return y ? [y.minRaiseTo, y.maxRaiseTo] : [0, 0];
 };
+const clampAmt = (v) => {
+  const [lo, hi] = amtLimits();
+  return Math.min(hi, Math.max(lo, Math.round(Number(v) || lo)));
+};
+window.onAmt = (v) => { raiseTo = Number(v); };
+window.paintAmt = () => {
+  const el = document.getElementById("betAmt");
+  if (el) el.value = raiseTo;
+};
+window.setAmt = (v) => { raiseTo = clampAmt(v); paintAmt(); };
+window.betNow = () => {
+  const el = document.getElementById("betAmt");
+  raiseTo = clampAmt(el ? el.value : raiseTo);
+  paintAmt();
+  act("raise", raiseTo);
+};
+
+let holdDelay = null, holdRepeat = null;
+window.holdStep = (ev, dir) => {
+  ev.preventDefault();
+  setAmt(raiseTo + dir * room.bb);          // one step on press, then repeat
+  holdStop();
+  holdDelay = setTimeout(() => {
+    holdRepeat = setInterval(() => setAmt(raiseTo + dir * room.bb), 70);
+  }, 400);
+};
+window.holdStop = () => { clearTimeout(holdDelay); clearInterval(holdRepeat); holdDelay = holdRepeat = null; };
 
 function cardHTML(c, cls = "", i = 0) {
   if (!c) return `<div class="card empty ${cls}"></div>`;
@@ -858,12 +894,16 @@ function tableHTML() {
 
   const myTurn = h && h.street !== "complete" && you && h.toAct === you.seat;
   const canRaise = you?.canRaise && you.maxRaiseTo > you.minRaiseTo;
+  // a fresh turn starts at the minimum bet; a repaint mid-turn leaves typing alone
+  const turnKey = h ? `${h.handNo}:${h.street}:${h.toAct}` : "";
+  if (myTurn && turnKey !== lastTurnKey) raiseTo = you.minRaiseTo;
+  lastTurnKey = turnKey;
   if (canRaise && (raiseTo === null || raiseTo < you.minRaiseTo || raiseTo > you.maxRaiseTo)) {
     raiseTo = you.minRaiseTo;
   }
 
   const ready = (view?.seats || []).filter((s) => s.stack > 0).length >= 2;
-  let bottom = "";
+  let bottom = "";   // status only: errors, sitting out, waiting
   if (err) bottom += `<div class="err">${esc(err)}</div>`;
 
   if (h && !you) {
@@ -874,19 +914,7 @@ function tableHTML() {
   } else if (!h) {
     // same here; the countdown is on the felt
   } else if (myTurn) {
-    if (canRaise) {
-      bottom += `<div class="raisebox">
-        <span class="muted" style="font-size:12px">Raise to</span>
-        <input type="range" min="${you.minRaiseTo}" max="${you.maxRaiseTo}" step="1" value="${raiseTo}"
-               oninput="setRaise(this.value)" onpointerdown="dragging=true" onpointerup="dragging=false">
-        <span class="amt" id="raiseAmt">${raiseTo}</span></div>`;
-    }
-    bottom += `<div class="row">
-      <button class="ghost" onclick="act('fold')" ${busy ? "disabled" : ""}>Fold</button>
-      <button class="call" onclick="act('${you.canCheck ? "check" : "call"}')" ${busy ? "disabled" : ""}>
-        ${you.canCheck ? "Check" : `Call ${you.toCall}`}</button>
-      ${canRaise ? `<button class="primary" onclick="act('raise', raiseTo)" ${busy ? "disabled" : ""}>Raise ${raiseTo}</button>` : ""}
-    </div>`;
+    // nothing here: the corners carry the buttons, the felt keeps its height
   } else {
     bottom += `<div class="wait"><span class="dots"><i></i><i></i><i></i></span>
       Waiting for ${esc(names[h.toAct] || "the next player")}…</div>`;
@@ -942,11 +970,26 @@ function tableHTML() {
       ${h && h.street === "complete" && h.board.length < 5 && !hunted
         ? `<button class="ghost" style="margin-top:10px" onclick="rabbitHunt()">Reveal</button>` : ""}
     </div>
-    <div class="bottom ${myTurn ? "myturn" : ""}">
-      ${you?.hole?.length ? `<div class="mycards">${you.hole.map((c, i) => cardHTML(c, "lg" + (used.has(c) ? " hl" : ""), i)).join("")}</div>` : ""}
+    <div class="status">${bottom}</div>
+    <div class="bottom">
       ${you?.best?.name ? `<div class="myhand">${esc(you.best.name)}</div>` : ""}
-      ${bottom}
+      ${you?.hole?.length ? `<div class="mycards">${you.hole.map((c, i) => cardHTML(c, "lg" + (used.has(c) ? " hl" : ""), i)).join("")}</div>` : ""}
     </div>
+    <div class="corner l ${myTurn ? "" : "off"}">
+      <button class="ghost" onclick="act('fold')" ${busy ? "disabled" : ""}>Fold</button>
+      ${you ? `<button class="call" onclick="act('${you.canCheck ? "check" : "call"}')" ${busy ? "disabled" : ""}>
+        ${you.canCheck ? "Check" : `Call ${you.toCall}`}</button>` : ""}
+    </div>
+    ${canRaise && you ? `
+    <div class="corner r ${myTurn ? "" : "off"}">
+      <button class="ghost" onclick="setAmt(${you.maxRaiseTo})" ${busy ? "disabled" : ""}>All in</button>
+      <button class="ghost step" onpointerdown="holdStep(event, 1)" onpointerup="holdStop()"
+              onpointerleave="holdStop()" onpointercancel="holdStop()">+</button>
+      <input id="betAmt" type="number" inputmode="numeric" value="${raiseTo}" oninput="onAmt(this.value)">
+      <button class="ghost step" onpointerdown="holdStep(event, -1)" onpointerup="holdStop()"
+              onpointerleave="holdStop()" onpointercancel="holdStop()">−</button>
+      <button class="primary" onclick="betNow()" ${busy ? "disabled" : ""}>Bet</button>
+    </div>` : ""}
     ${logOpen ? logHTML(h, names) : ""}`;
 }
 
@@ -1003,7 +1046,6 @@ window.rabbitHunt = async () => {
 window.closeLog = () => { logOpen = false; render(true); };
 
 function refreshTable() {
-  if (dragging) return;
   render();
 }
 
