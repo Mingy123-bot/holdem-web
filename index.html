@@ -1124,6 +1124,8 @@ function stateSig() {
   const h = view?.hand;
   return [
     name, room?.id || "-", busy ? 1 : 0, err, balance, presets.length,
+    // the host can change hands: the Pace button has to move with it
+    view?.room?.host_id || "-",
     rooms.map((r) => `${r.id}:${r.seated}:${r.min_buyin}:${r.max_buyin}`).join(","),
     // At a table the live seats matter: a second player arriving has to repaint
     // or the deal timer never arms.
