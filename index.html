@@ -320,7 +320,6 @@
 const BASE = location.search.includes("local")
   ? "http://127.0.0.1:8787"
   : "https://holdem.mingho.ng";
-const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhxb2h0dm1mcmJlYXVzeWx4Z2tyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM3OTEyMTYsImV4cCI6MjEwOTM2NzIxNn0.-s6JEonKk5EcvoJM4vGbe4xNbZiKrmKLsrI95MDLe5Q";
 
 const app = document.getElementById("app");
 const STORE_SESSION = "holdem.session";
@@ -328,7 +327,7 @@ const STORE_NAME = "holdem.name";
 
 let S = { access: null, uid: null };  // an account is just its uid
 let name = localStorage.getItem(STORE_NAME) || "";
-let rooms = [], seats = [], room = null, view = null;
+let rooms = [], me = null, room = null, view = null;
 let balance = 0, presets = [];
 let err = "", busy = false, dragging = false, raiseTo = null;
 let gen = 0;
@@ -406,7 +405,7 @@ class ApiError extends Error {
 }
 
 async function api(path, { method = "POST", body = null, token = null } = {}) {
-  const headers = { apikey: ANON };
+  const headers = {};
   if (body !== null) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(BASE + path, {
@@ -423,13 +422,11 @@ async function api(path, { method = "POST", body = null, token = null } = {}) {
 }
 
 function adopt(session) {
-  S.access = session.access_token;
-  S.uid = session.user?.id ?? S.access;
+  S.access = S.uid = session.token;
   localStorage.setItem(STORE_SESSION, S.access);
 }
 
-const rpc = (fn, body) => api(`/rest/v1/rpc/${fn}`, { body, token: S.access });
-const poker = (body) => api("/functions/v1/poker", { body, token: S.access });
+const post = (path, body = null) => api(path, { body, token: S.access });
 
 /** A saved uid is the whole session; only a 401 means it is gone for good. */
 async function ensureSession() {
@@ -437,15 +434,15 @@ async function ensureSession() {
   if (saved) {
     S.access = S.uid = saved;
     try {
-      await api("/rest/v1/rpc/hello", { body: { p_name: name }, token: saved });
+      await api("/name", { body: { name }, token: saved });
       return;
     } catch (e) {
       if (!(e instanceof ApiError) || e.status !== 401) throw e;
     }
   }
   localStorage.removeItem(STORE_SESSION);
-  adopt(await api("/auth/v1/signup", { body: {} }));
-  if (name) await api("/rest/v1/rpc/hello", { body: { p_name: name }, token: S.access });
+  adopt(await api("/signup", { body: {} }));
+  if (name) await post("/name", { name });
 }
 
 // ---------------------------------------------------------------- boot
@@ -455,11 +452,10 @@ async function boot() {
   await loadLobby();
 
   // Reconnect: a refresh or a locked phone must land you back at your table.
-  const mine = seats.find((s) => s.player_id === S.uid);
-  if (mine) {
-    room = rooms.find((r) => r.id === mine.room_id) || null;
+  if (me?.table) {
+    room = rooms.find((r) => r.id === me.table) || null;
     if (room) {
-      try { view = await rpc("room_view", { p_room: room.id }); startPolling(); }
+      try { view = await post(`/tables/${room.id}`); startPolling(); }
       catch { room = null; }
     }
   }
@@ -467,13 +463,12 @@ async function boot() {
 }
 
 async function loadLobby() {
-  const [r, s, me, pr] = await Promise.all([
-    api("/rest/v1/rooms?select=id,name,sb,bb&order=sb", { method: "GET" }),
-    api("/rest/v1/seats?select=room_id,seat,player_id,stack", { method: "GET" }),
-    rpc("me", {}),
-    api("/rest/v1/presets", { method: "GET" }),
+  const [r, who, pr] = await Promise.all([
+    api("/rooms", { method: "GET" }),
+    post("/me"),
+    presets.length ? presets : api("/presets", { method: "GET" }),
   ]);
-  rooms = r; seats = s; balance = me.balance ?? 0; presets = pr || [];
+  rooms = r; me = who; balance = who.balance ?? 0; presets = pr || [];
 }
 
 const fmt = (n) => (n ?? 0).toLocaleString();
@@ -487,13 +482,13 @@ window.host = async (ev) => {
   const nameEl = document.getElementById("hostName");
   const presetEl = document.getElementById("hostPreset");
   const body = {
-    p_name: nameEl ? nameEl.value.trim() : "",
-    p_preset: Number(presetEl ? presetEl.value : 0),
+    name: nameEl ? nameEl.value.trim() : "",
+    preset: Number(presetEl ? presetEl.value : 0),
   };
   busy = true;
   try {
     render(true);
-    await rpc("create_table", body);
+    await post("/tables", body);
     err = "";
     await loadLobby();
   } catch (e) {
@@ -508,7 +503,7 @@ window.host = async (ev) => {
 window.topup = async () => {
   if (busy) return;
   busy = true;
-  try { balance = (await rpc("topup", {})).balance; err = ""; }
+  try { balance = (await post("/topup")).balance; err = ""; }
   catch (e) { err = e.message; }
   finally { busy = false; }
   render(true);
@@ -516,17 +511,11 @@ window.topup = async () => {
 
 // ---------------------------------------------------------------- lobby
 
-function freeSeat(roomId) {
-  const taken = new Set(seats.filter((s) => s.room_id === roomId).map((s) => s.seat));
-  for (let i = 0; i < 9; i++) if (!taken.has(i)) return i;
-  return -1;
-}
-
 window.saveName = async (ev) => {
   ev.preventDefault();
   name = new FormData(ev.target).get("n").toString().trim().slice(0, 16) || "Player";
   localStorage.setItem(STORE_NAME, name);
-  try { await rpc("hello", { p_name: name }); } catch (e) { err = e.message; }
+  try { await post("/name", { name }); } catch (e) { err = e.message; }
   render(true);
   if (!rooms.length) { try { await loadLobby(); } catch (e) { err = e.message; } render(true); }
 };
@@ -536,9 +525,8 @@ window.sit = async (roomId, buyin) => {
   busy = true;
   try {
     render(true);
-    const seat = freeSeat(roomId);
-    if (seat < 0) throw new Error("table is full");
-    const v = await rpc("sit", { p_room: roomId, p_seat: seat, p_buyin: buyin });
+    // The server seats you: no free-seat race to lose.
+    const v = await post(`/tables/${roomId}/sit`, { buyin });
     room = rooms.find((r) => r.id === roomId);
     view = v;
     err = "";
@@ -559,7 +547,7 @@ window.leave = async () => {
   try {
     // Fold first: the server will not cash you out mid-hand, and the optimistic
     // version of this left the lobby showing you as gone while you were seated.
-    await rpc("leave_table", { p_room: r.id });
+    await post(`/tables/${r.id}/leave`);
   } catch (e) {
     err = e.message || String(e);
     render(true);
@@ -592,7 +580,7 @@ function startPolling() {
   const loop = async () => {
     if (g !== gen || !room) return;
     try {
-      const v = await rpc("room_view", { p_room: room.id });
+      const v = await post(`/tables/${room.id}`);
       const cur = view?.hand, inc = v.hand;
       const stale = cur && inc && (inc.handNo < cur.handNo || (inc.handNo === cur.handNo && inc.version < cur.version));
       if (!stale) { view = v; err = ""; }
@@ -602,20 +590,12 @@ function startPolling() {
         kickHome();
         return;
       }
-      // Idle clock: ask the server to fold whoever ran out. The server re-checks
-      // and version-guards the write, so every client can ask at once.
       const hh = v.hand;
-      if (hh && hh.street !== "complete" && hh.actingAt &&
-          now() - Date.parse(hh.actingAt) > (TURN_SEC + 2) * 1000) {
-        poker({ op: "sweep", room: room.id })
-          .then((r) => { if (r && r.view) { view = r.view; refreshTable(); } })
-          .catch(() => {});
-      }
       // Hands deal themselves. Every client asks; unique(room_id, hand_no)
       // makes the losers of the race harmless.
       if ((!hh || hh.street === "complete") && autoNextAt && now() > autoNextAt) {
         autoNextAt = null;
-        send({ op: "next", room: room.id });
+        send("next");
       }
     } catch (e) { err = e.message; }
     refreshTable();
@@ -626,13 +606,12 @@ function startPolling() {
   loop();
 }
 
-async function send(body) {
+async function send(op, body = null) {
   if (busy) return;
   busy = true;
   try {
     render(true);
-    const r = await poker(body);
-    if (r.view) view = r.view;
+    view = await post(`/tables/${room.id}/${op}`, body);
     err = "";
   } catch (e) {
     err = e.message || String(e);
@@ -656,14 +635,14 @@ window.act = (type, to) => {
   else if (type === "check") SFX.check();
   else if (type === "raise" && to >= (you?.maxRaiseTo ?? 0)) SFX.allin();
   else SFX.chip();
-  send({ op: "act", room: room.id, action: type === "raise" ? { type, to } : { type } });
+  send("act", type === "raise" ? { type, to } : { type });
 };
 
-window.deal = () => { autoNextAt = 0; send({ op: "next", room: room.id }); };
+window.deal = () => { autoNextAt = 0; send("next"); };
 window.rebuy = async () => {
   if (busy) return;
   busy = true;
-  try { view = await rpc("rebuy", { p_room: room.id, p_amount: 50 * room.bb }); err = ""; SFX.chip(); }
+  try { view = await post(`/tables/${room.id}/rebuy`, { amount: 50 * room.bb }); err = ""; SFX.chip(); }
   catch (e) { err = e.message; }
   busy = false;
   refreshTable();
@@ -988,9 +967,9 @@ function stateSig() {
   return [
     name, room?.id || "-", busy ? 1 : 0, err, balance, presets.length,
     rooms.map((r) => `${r.id}:${r.seated}:${r.min_buyin}:${r.max_buyin}`).join(","),
-    // At a table the live seats matter, not the lobby snapshot: a second player
-    // arriving has to repaint or the deal timer never arms.
-    (room ? view?.seats || [] : seats).map((s) => `${s.seat}:${s.stack}:${s.name || ""}`).join(","),
+    // At a table the live seats matter: a second player arriving has to repaint
+    // or the deal timer never arms.
+    (room ? view?.seats || [] : []).map((s) => `${s.seat}:${s.stack}:${s.name || ""}`).join(","),
     h ? [h.handNo, h.version, h.street, h.toAct, h.pot, h.currentBet, h.board.length,
       h.players.map((p) => `${p.seat},${p.stack},${p.bet},${p.folded ? 1 : 0}`).join(";")].join("/") : "-",
     (h?.results?.pots || []).map((p) => p.amount).join(","),
@@ -1060,7 +1039,7 @@ function paint(force = false) {
   }
 
   const rows = rooms.map((r, i) => {
-    const occupied = r.seated ?? seats.filter((s) => s.room_id === r.id).length;
+    const occupied = r.seated ?? 0;
     const broke = balance < r.min_buyin;
     return `<div class="room" style="animation-delay:${i * 60}ms">
       <div class="grow"><b>${esc(r.name)}</b>
