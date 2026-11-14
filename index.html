@@ -356,7 +356,7 @@ let pendingFloat = null;
 let autoNextAt = 0;   // when the next hand deals itself
 let logOpen = false;
 const TURN_SEC = 30;
-const AUTO_NEXT_MS = 3500;   // between hands
+const AUTO_NEXT_MS = 5000;   // between hands, to read the result
 const AUTO_HUNT_MS = 8000;   // between hands when there are cards to rabbit hunt
 const AUTO_START_MS = 5000;  // first hand at a table that just became ready
 
@@ -915,10 +915,11 @@ function tableHTML() {
     // same here; the countdown is on the felt
   } else if (myTurn) {
     // nothing here: the corners carry the buttons, the felt keeps its height
-  } else {
+  } else if (h.toAct != null) {
     bottom += `<div class="wait"><span class="dots"><i></i><i></i><i></i></span>
       Waiting for ${esc(names[h.toAct] || "the next player")}…</div>`;
   }
+  // toAct null means the board is dealing itself out: nothing to say
 
   const used = new Set(you?.best?.cards || []);
   // at showdown the chips are already in the pot; leaving them on the felt
