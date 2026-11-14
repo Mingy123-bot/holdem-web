@@ -163,6 +163,7 @@
     padding:9px 15px; border-radius:999px; font-size:12px; font-weight:800; letter-spacing:.5px;
     background:#00000088; color:var(--gold); border:1px solid #d8b26a55; backdrop-filter:blur(4px)}
   .logstreet{color:var(--muted); font-size:10px; letter-spacing:2px; margin:10px 0 2px}
+  .down{color:#ff8a80}
   .logsheet{position:fixed; inset:0; z-index:30; background:#000000a8; backdrop-filter:blur(2px);
     display:grid; place-items:center; padding:18px; animation:fadeIn .2s both}
   .logcard{width:min(420px,100%); max-height:72vh; overflow:auto; padding:14px; border-radius:16px;
@@ -332,6 +333,8 @@ let S = { access: null, uid: null };  // an account is just its uid
 let name = localStorage.getItem(STORE_NAME) || "";
 let rooms = [], me = null, room = null, view = null;
 let balance = 0, presets = [];
+let rabbit = null;      // the board this hand never dealt, once revealed
+let ledger = [];        // this table's session, from the server
 let err = "", busy = false, dragging = false, raiseTo = null;
 let gen = 0;
 let lastSig = "";
@@ -340,6 +343,7 @@ let autoNextAt = 0;   // when the next hand deals itself
 let logOpen = false;
 const TURN_SEC = 30;
 const AUTO_NEXT_MS = 3500;   // between hands
+const AUTO_HUNT_MS = 8000;   // between hands when there are cards to rabbit hunt
 const AUTO_START_MS = 5000;  // first hand at a table that just became ready
 
 // ---------------------------------------------------------------- ambience
@@ -886,8 +890,9 @@ function tableHTML() {
     for (const w of p.winners) wonBy.set(w.seat, (wonBy.get(w.seat) || 0) + w.amount);
   }
 
+  const hunted = h && rabbit && rabbit.handNo === h.handNo ? rabbit.board : null;
   const board = [0, 1, 2, 3, 4].map((i) => {
-    const c = h?.board?.[i];
+    const c = (hunted || h?.board || [])[i];
     const fresh = i >= snap.board && c;   // only the new cards animate
     return cardHTML(c, [fresh ? "flip" : "", used.has(c) ? "hl" : ""].join(" "), i);
   }).join("");
@@ -917,6 +922,8 @@ function tableHTML() {
         : `<div class="dealwait">waiting for another player</div>`) : ""}
       ${wonBy.size ? `<div class="wonline">${[...wonBy]
         .map(([s, a]) => `<span>${esc(names[s] || "Seat " + (s + 1))} <b>+${a}</b></span>`).join("")}</div>` : ""}
+      ${h && h.street === "complete" && h.board.length < 5 && !hunted
+        ? `<button class="ghost" style="margin-top:10px" onclick="rabbitHunt()">Reveal</button>` : ""}
     </div>
     <div class="bottom ${myTurn ? "myturn" : ""}">
       ${you?.hole?.length ? `<div class="mycards">${you.hole.map((c, i) => cardHTML(c, "lg" + (used.has(c) ? " hl" : ""), i)).join("")}</div>` : ""}
@@ -958,10 +965,24 @@ function logHTML(h, names) {
       <div class="logsub">${h ? `Board ${esc((h.board || []).join(" ") || "—")} · pot ${h.pot}` : "no hand yet"}</div>
       ${body.join("")}
       ${potRows ? `<div class="logstreet">RESULT</div>${potRows}${handRows}` : ""}
+      ${ledger.length ? `<div class="logstreet">SESSION</div>${ledger.map((r) => `
+        <div class="logrow"><span>${esc(r.name)} · ${r.hands}h</span>
+          <span class="${r.net >= 0 ? "gold" : "down"}">${r.net > 0 ? "+" : ""}${r.net}</span></div>`).join("")}` : ""}
     </div></div>`;
 }
 
-window.openLog = () => { logOpen = true; render(true); };
+window.openLog = async () => {
+  logOpen = true;
+  render(true);
+  try { ledger = await post(`/tables/${room.id}/ledger`); } catch (e) { err = e.message; }
+  render(true);
+};
+
+/** Rabbit hunting: ask for the board nobody saw. */
+window.rabbitHunt = async () => {
+  try { rabbit = await post(`/tables/${room.id}/rabbit`); err = ""; } catch (e) { err = e.message; }
+  render(true);
+};
 window.closeLog = () => { logOpen = false; render(true); };
 
 function refreshTable() {
@@ -982,6 +1003,8 @@ function stateSig() {
     h ? [h.handNo, h.version, h.street, h.toAct, h.pot, h.currentBet, h.board.length,
       h.players.map((p) => `${p.seat},${p.stack},${p.bet},${p.folded ? 1 : 0}`).join(";")].join("/") : "-",
     (h?.results?.pots || []).map((p) => p.amount).join(","),
+    rabbit ? `${rabbit.handNo}:${rabbit.board.join("")}` : "-",
+    ledger.map((r) => `${r.playerId.slice(0, 4)}:${r.net}`).join(","),
   ].join("|");
 }
 
@@ -1017,7 +1040,11 @@ function paint(force = false) {
     // 3.5s between hands so there is a beat to read the result.
     const ready = (view.seats || []).filter((s) => s.stack > 0).length >= 2;
     if (!h || h.street === "complete") {
-      if (ready && !autoNextAt) autoNextAt = now() + (h ? AUTO_NEXT_MS : AUTO_START_MS);
+      // A hand that died early leaves a reveal to press: give it a longer beat.
+      if (ready && !autoNextAt) {
+        const wait = !h ? AUTO_START_MS : h.board.length < 5 ? AUTO_HUNT_MS : AUTO_NEXT_MS;
+        autoNextAt = now() + wait;
+      }
       if (!ready) autoNextAt = 0;
     }
     app.innerHTML = tableHTML();
