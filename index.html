@@ -241,6 +241,25 @@
     font-variant-numeric:tabular-nums; appearance:textfield; -moz-appearance:textfield}
   .corner input::-webkit-outer-spin-button,.corner input::-webkit-inner-spin-button{
     -webkit-appearance:none; margin:0}
+  .sheet{position:fixed; inset:0; z-index:40; background:#000000b8; display:flex; align-items:center;
+    justify-content:center; padding:20px; animation:fadeIn .15s both}
+  .sheetcard{width:100%; max-width:320px; background:#12352b; border:1px solid #ffffff1f;
+    border-radius:16px; padding:16px; box-shadow:0 24px 60px #000c}
+  .sheetlabel{color:var(--muted); font-size:11px; letter-spacing:2px; text-transform:uppercase;
+    margin-bottom:10px; text-align:center}
+  .sheetcard input[type=number]{width:100%; text-align:center; font-size:26px; font-weight:900;
+    color:var(--gold); background:#0a1f19; border:1px solid #ffffff26; border-radius:12px; padding:10px;
+    font-variant-numeric:tabular-nums; appearance:textfield; -moz-appearance:textfield}
+  .sheetcard input::-webkit-outer-spin-button,.sheetcard input::-webkit-inner-spin-button{
+    -webkit-appearance:none; margin:0}
+  .sheetrow{display:flex; gap:8px; margin-top:12px}
+  .sheetrow button{flex:1; height:40px; border-radius:12px; font-weight:800}
+  .sheetfield{display:flex; align-items:center; justify-content:space-between; gap:10px;
+    margin-bottom:10px; color:#cfe0d5; font-size:12px}
+  .sheetfield span{color:var(--muted); font-size:11px; min-width:12px}
+  .sheetfield input[type=number]{width:80px; font-size:18px; padding:6px}
+  .corner .amtbtn{font-size:16px; font-weight:900; color:var(--gold); background:#0a1f19;
+    border:1px solid #ffffff26}
   #pullSpin{position:fixed; left:50%; top:calc(8px + env(safe-area-inset-top)); width:24px; height:24px;
     margin-left:-12px; border-radius:50%; border:2px solid #d8b26a3d; border-top-color:var(--gold);
     opacity:0; z-index:30; pointer-events:none; will-change:transform,opacity}
@@ -347,14 +366,14 @@ let balance = 0, presets = [];
 let rabbit = null;      // the board this hand never dealt, once revealed
 let ledger = [];        // this table's session, from the server
 let err = "", busy = false, raiseTo = null, lastTurnKey = "";
+let betOpen = false, paceOpen = false;   // centred sheets, not corner inputs
 let gen = 0;
 let lastSig = "";
 let pendingFloat = null;
 let autoNextAt = 0;   // when the next hand deals itself
 let logOpen = false;
 const TURN_SEC = 30;
-const AUTO_NEXT_MS = 5000;   // between hands, to read the result
-const AUTO_HUNT_MS = 8000;   // between hands when there are cards to rabbit hunt
+// between hands is the table's own hand_pause, see paint()
 const AUTO_START_MS = 5000;  // first hand at a table that just became ready
 
 // ---------------------------------------------------------------- ambience
@@ -685,17 +704,43 @@ const clampAmt = (v) => {
   const [lo, hi] = amtLimits();
   return Math.min(hi, Math.max(lo, Math.round(Number(v) || lo)));
 };
-window.onAmt = (v) => { raiseTo = Number(v); };
+window.onAmt = (v) => {
+  raiseTo = Number(v);
+  const b = document.getElementById("amtBtn");
+  if (b) b.textContent = v === "" ? "…" : v;
+};
 window.paintAmt = () => {
-  const el = document.getElementById("betAmt");
-  if (el) el.value = raiseTo;
+  const b = document.getElementById("amtBtn");
+  if (b) b.textContent = raiseTo;
+  const i = document.getElementById("betInput");
+  if (i && document.activeElement !== i) i.value = raiseTo;
 };
 window.setAmt = (v) => { raiseTo = clampAmt(v); paintAmt(); };
 window.betNow = () => {
-  const el = document.getElementById("betAmt");
+  const el = document.getElementById("betInput");
   raiseTo = clampAmt(el ? el.value : raiseTo);
-  paintAmt();
   act("raise", raiseTo);
+  if (betOpen) closeBet();
+};
+window.openBet = () => {
+  if (!view?.hand?.you) return;
+  betOpen = true;
+  render(true);
+  const el = document.getElementById("betInput");
+  if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+};
+window.closeBet = () => { betOpen = false; render(true); };
+
+window.openPace = () => { paceOpen = true; render(true); };
+window.closePace = () => { paceOpen = false; render(true); };
+window.savePace = async () => {
+  const secs = (id, dflt) => Math.round(Number(document.getElementById(id)?.value || dflt) * 1000);
+  try {
+    view = await post(`/tables/${room.id}/pacing`,
+                      { handPause: secs("pacePause", 5), runout: secs("paceRunout", 1) });
+    err = "";
+  } catch (e) { err = e.message; }
+  closePace();
 };
 
 let holdDelay = null, holdRepeat = null;
@@ -948,6 +993,8 @@ function tableHTML() {
         <span class="muted" style="font-size:11px">${room.sb}/${room.bb}</span>${streetNow}</div>
       <div style="display:flex;gap:8px">
         <button class="ghost" id="muteBtn" onclick="toggleMute()" style="padding:6px 10px">${SFX.isMuted() ? "🔇" : "🔊"}</button>
+        ${view?.room?.host_id === S.uid
+          ? `<button class="ghost" onclick="openPace()" style="padding:6px 10px">Pace</button>` : ""}
         <button class="ghost" onclick="leave()" style="padding:6px 12px">Leave</button>
       </div>
     </div>
@@ -983,11 +1030,35 @@ function tableHTML() {
       <button class="ghost" onclick="setAmt(${you.maxRaiseTo})" ${busy ? "disabled" : ""}>All in</button>
       <button class="ghost step" onpointerdown="holdStep(event, 1)" onpointerup="holdStop()"
               onpointerleave="holdStop()" onpointercancel="holdStop()">+</button>
-      <input id="betAmt" type="number" inputmode="numeric" value="${raiseTo}" oninput="onAmt(this.value)">
+      <button class="ghost amtbtn" id="amtBtn" onclick="openBet()">${raiseTo}</button>
       <button class="ghost step" onpointerdown="holdStep(event, -1)" onpointerup="holdStop()"
               onpointerleave="holdStop()" onpointercancel="holdStop()">−</button>
       <button class="primary" onclick="betNow()" ${busy ? "disabled" : ""}>Bet</button>
     </div>` : ""}
+    ${betOpen ? `<div class="sheet" onclick="if(event.target===this)closeBet()">
+      <div class="sheetcard">
+        <div class="sheetlabel">Bet to</div>
+        <input id="betInput" type="number" inputmode="numeric" value="${raiseTo}"
+               oninput="onAmt(this.value)" onkeydown="if(event.key==='Enter')betNow()">
+        <div class="sheetrow">
+          <button class="ghost" onclick="closeBet()">Cancel</button>
+          <button class="primary" onclick="betNow()">Bet</button>
+        </div>
+      </div></div>` : ""}
+    ${paceOpen ? `<div class="sheet" onclick="if(event.target===this)closePace()">
+      <div class="sheetcard">
+        <div class="sheetlabel">Table pace</div>
+        <label class="sheetfield">Pause after a hand
+          <input id="pacePause" type="number" step="0.5" min="0"
+                 value="${((view?.room?.hand_pause ?? 5000) / 1000)}"><span>s</span></label>
+        <label class="sheetfield">Between streets
+          <input id="paceRunout" type="number" step="0.5" min="0"
+                 value="${((view?.room?.runout_ms ?? 1000) / 1000)}"><span>s</span></label>
+        <div class="sheetrow">
+          <button class="ghost" onclick="closePace()">Cancel</button>
+          <button class="primary" onclick="savePace()">Save</button>
+        </div>
+      </div></div>` : ""}
     ${logOpen ? logHTML(h, names) : ""}`;
 }
 
@@ -1098,9 +1169,10 @@ function paint(force = false) {
     const ready = (view.seats || []).filter((s) => s.stack > 0).length >= 2;
     if (!h || h.street === "complete") {
       // A hand that died early leaves a reveal to press: give it a longer beat.
+      // The pause itself is the table's (host sets it in the pace sheet).
       if (ready && !autoNextAt) {
-        const wait = !h ? AUTO_START_MS : h.board.length < 5 ? AUTO_HUNT_MS : AUTO_NEXT_MS;
-        autoNextAt = now() + wait;
+        const pause = view?.room?.hand_pause ?? 5000;
+        autoNextAt = now() + (!h ? AUTO_START_MS : h.board.length < 5 ? pause + 3000 : pause);
       }
       if (!ready) autoNextAt = 0;
     }
