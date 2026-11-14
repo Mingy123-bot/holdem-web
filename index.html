@@ -113,7 +113,7 @@
   .room-pill{background:#00000055; border:1px solid #ffffff14; border-radius:999px; padding:6px 12px}
 
   /* ---------- seats ---------- */
-  .seat{position:absolute; transform:translate(-50%,-50%); width:100px; padding:7px 8px;
+  .seat{position:absolute; transform:translate(-50%,-50%); width:108px; padding:7px 8px;
     background:linear-gradient(#0f3228e6,#081c16e6); border:1px solid #ffffff22; border-radius:13px;
     font-size:11px; line-height:1.25; z-index:2; backdrop-filter:blur(3px);
     transition:opacity .3s, filter .3s, border-color .2s, box-shadow .2s;
@@ -125,16 +125,21 @@
     0%,100%{box-shadow:0 0 0 2px #d8b26a77, 0 0 20px #d8b26a33}
     50%{box-shadow:0 0 0 3px #d8b26acc, 0 0 34px #d8b26a66}}
   .seat.folded{opacity:.32; filter:grayscale(1) blur(.4px)}
-  .seat.win{border-color:#ffe08a; animation:winGlow 1s ease-in-out infinite alternate}
+  .seat.win{background:linear-gradient(#fbf5e6,#e8dcbe); border-color:#e8d7a4;
+    animation:winGlow 1s ease-in-out infinite alternate}
+  .seat.win .nm,.seat.win .st,.seat.win .act{color:#16241d}
+  .seat.win .act{background:#16241d; color:#ffe08a; border-color:#16241d}
   @keyframes winGlow{to{box-shadow:0 0 0 2px #ffe08a, 0 0 44px #ffd76a99}}
   .seat .head{display:flex; align-items:center; gap:6px}
-  .av{width:20px; height:20px; border-radius:50%; flex:none; display:grid; place-items:center;
-    font-size:10px; font-weight:800; color:#062018;
+  .av{width:16px; height:16px; border-radius:50%; flex:none; display:grid; place-items:center;
+    font-size:9px; font-weight:800; color:#062018;
     background:linear-gradient(140deg,#8fe0bb,#2f7d5b); box-shadow:0 0 10px #2f7d5b66}
   .seat.me .av{background:linear-gradient(140deg,#f6dfae,#c99f52); box-shadow:0 0 12px #d8b26a77}
-  .seat .nm{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#cfe0d5; flex:1}
+  .seat .nm{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#cfe0d5;
+    flex:1; min-width:0}
   .seat.me .nm{color:var(--gold)}
-  .seat .st{font-weight:800; font-size:15px; color:#fff; font-variant-numeric:tabular-nums}
+  .seat .st{font-weight:800; font-size:11.5px; color:#fff; font-variant-numeric:tabular-nums;
+    margin-left:auto; flex:none}
   .seat .bet{color:var(--gold); font-size:10px; font-variant-numeric:tabular-nums}
   /* bet this street, in a chip in front of the player */
   .betchip{position:absolute; transform:translate(-50%,-50%); width:34px; height:34px; border-radius:50%;
@@ -189,28 +194,23 @@
   .holemini{position:absolute; left:50%; bottom:-27px; transform:translateX(-50%); display:flex; gap:2px}
   .holemini .card{animation:flipIn .5s both; animation-delay:calc(var(--i,0)*90ms)}
   /* what this seat did this street: it stays until the street does */
-  .seat .act{margin-top:2px; font-size:9px; font-weight:900; letter-spacing:.6px;
+  .seat .act{position:absolute; left:50%; bottom:-9px; transform:translateX(-50%);
+    background:#0a1f19f2; border:1px solid #d8b26a44; border-radius:999px; padding:0 7px;
+    font-size:9px; font-weight:900; letter-spacing:.6px; white-space:nowrap; z-index:5;
     color:#ffe08a; text-transform:uppercase; animation:fadeIn .18s ease-out both}
   .seat .act.fold{color:#9fb3a8}
 
   /* ---------- centre ---------- */
   .center{position:absolute; left:50%; top:calc(var(--ccy)*1%); transform:translate(-50%,-50%);
     text-align:center; z-index:2}
-  .potwrap{display:flex; align-items:center; justify-content:center; gap:7px; margin-bottom:8px}
-  .chips{position:relative; width:26px; height:16px}
-  .chips i{position:absolute; left:0; width:26px; height:9px; border-radius:50%;
-    background:repeating-conic-gradient(#e8dcb8 0 20deg, #b99a5e 20deg 40deg);
-    box-shadow:0 1px 2px #0007; animation:chipIn .35s both}
-  .chips i:nth-child(1){bottom:0}
-  .chips i:nth-child(2){bottom:4px; animation-delay:.05s}
-  .chips i:nth-child(3){bottom:8px; animation-delay:.1s}
-  @keyframes chipIn{from{opacity:0; transform:translateY(-10px) scale(.7)} to{opacity:1; transform:none}}
+  .potwrap{display:flex; align-items:center; justify-content:center; margin-bottom:8px}
   .pot{color:var(--gold); font-weight:900; font-size:15px; letter-spacing:.6px;
     font-variant-numeric:tabular-nums; text-shadow:0 0 18px #d8b26a55}
   .pot.bump{animation:bump .4s cubic-bezier(.2,1.6,.4,1); transform-origin:left center}
   @keyframes bump{0%{transform:scale(1)} 40%{transform:scale(1.28)} 100%{transform:scale(1)}}
   .board{display:flex; gap:6px; justify-content:center; perspective:800px}
-  .street{color:var(--muted); font-size:10px; letter-spacing:3px; margin-top:8px; opacity:.8}
+  .street{color:var(--gold); font-size:9px; letter-spacing:2px; margin:0 0 0 9px;
+    padding-left:9px; border-left:1px solid #ffffff1f; opacity:.85}
   .street span{animation:fadeIn .5s both}
   @keyframes fadeIn{from{opacity:0} to{opacity:1}}
 
@@ -232,7 +232,10 @@
   .bottom.myturn .row button.call{background:linear-gradient(#4cc79a,#2c8a66);
     box-shadow:0 0 34px #3fd39a77, inset 0 1px 0 #fff5}
   .bottom.myturn .row button.primary{box-shadow:0 0 40px #f5cf8aa8, inset 0 1px 0 #fff9}
-  .bottom.myturn .row button.ghost{background:#ffffff2e; border-color:#ffffff55; color:#fff}
+  .bottom.myturn .row button.ghost{background:#ffffff12; border-color:#ffffff2e; color:#cfe0d5;
+    box-shadow:none; filter:none}
+  .bottom .row button.ghost{flex:.85}
+  .bottom .row button.call,.bottom .row button.primary{flex:1.15}
   #pullHint{position:fixed; top:calc(8px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%);
     z-index:30; font-size:12px; color:var(--gold); background:#0a1f19e6; border:1px solid #d8b26a55;
     border-radius:999px; padding:5px 12px; opacity:0; transition:opacity .15s; pointer-events:none}
@@ -820,8 +823,8 @@ function seatHTML(seatIdx, info, h, me, at) {
       ${h && h.dealer === seatIdx ? '<div class="dbtn">D</div>' : ""}
       ${wonAt > 0 ? `<div class="won">+${wonAt}</div>` : ""}
       <div class="head"><div class="av">${esc(who.slice(0, 1).toUpperCase())}</div>
-        <div class="nm">${esc(who)}</div>${warn}</div>
-      <div class="st">${ps?.stack ?? info.stack}</div>
+        <div class="nm">${esc(who)}</div>${warn}
+        <div class="st">${ps?.stack ?? info.stack}</div></div>
       ${ps?.allIn ? '<div class="allin">ALL IN</div>' : ""}
       ${label ? `<div class="act${label === "FOLD" ? " fold" : ""}">${esc(label)}</div>` : ""}
       ${rev?.best?.name ? `<div class="handname">${esc(rev.best.name)}</div>` : ""}
@@ -878,7 +881,9 @@ function tableHTML() {
   }
 
   const used = new Set(you?.best?.cards || []);
-  const chips = (view?.seats || []).map((info) => {
+  // at showdown the chips are already in the pot; leaving them on the felt
+  // buries the result line and the Reveal button
+  const chips = h?.street === "complete" ? "" : (view?.seats || []).map((info) => {
     const ps = h?.players?.find((p) => p.seat === info.seat);
     const at = pos.get(info.seat);
     if (!ps?.bet || !at) return "";
@@ -891,6 +896,8 @@ function tableHTML() {
   }
 
   const hunted = h && rabbit && rabbit.handNo === h.handNo ? rabbit.board : null;
+  const streetNow = h
+    ? `<span class="street">${esc(h.street === "complete" ? "SHOWDOWN" : h.street.toUpperCase())}</span>` : "";
   const board = [0, 1, 2, 3, 4].map((i) => {
     const c = (hunted || h?.board || [])[i];
     const fresh = i >= snap.board && c;   // only the new cards animate
@@ -900,7 +907,7 @@ function tableHTML() {
   return `
     <div class="topbar">
       <div class="room-pill"><b>${esc(room.name)}</b>
-        <span class="muted" style="font-size:11px">${room.sb}/${room.bb}</span></div>
+        <span class="muted" style="font-size:11px">${room.sb}/${room.bb}</span>${streetNow}</div>
       <div style="display:flex;gap:8px">
         <button class="ghost" id="muteBtn" onclick="toggleMute()" style="padding:6px 10px">${SFX.isMuted() ? "🔇" : "🔊"}</button>
         <button class="ghost" onclick="leave()" style="padding:6px 12px">Leave</button>
@@ -912,11 +919,9 @@ function tableHTML() {
     ${chips}
     <div class="center">
       <div class="potwrap">
-        <div class="chips"><i></i><i></i><i></i></div>
         <div class="pot${(h?.pot ?? 0) > snap.pot ? " bump" : ""}">POT ${h?.pot ?? 0}</div>
       </div>
       <div class="board">${board}</div>
-      ${h && h.street !== "complete" ? `<div class="street"><span>${esc(h.street.toUpperCase())}</span></div>` : ""}
       ${!h || h.street === "complete" ? (ready
         ? `<div class="dealwait">dealing in <span id="nextIn">…</span>s</div>`
         : `<div class="dealwait">waiting for another player</div>`) : ""}
