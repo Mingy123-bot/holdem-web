@@ -1164,8 +1164,8 @@ function paint(force = false) {
 
   if (room) {
     const h = view?.hand;
-    // A table with chips and no live hand deals itself: 5s the first time,
-    // 3.5s between hands so there is a beat to read the result.
+    // A table with chips and no live hand deals itself: 5s the first time, the
+    // table's own pause between hands so there is a beat to read the result.
     const ready = (view.seats || []).filter((s) => s.stack > 0).length >= 2;
     if (!h || h.street === "complete") {
       // A hand that died early leaves a reveal to press: give it a longer beat.
@@ -1175,6 +1175,11 @@ function paint(force = false) {
         autoNextAt = now() + (!h ? AUTO_START_MS : h.board.length < 5 ? pause + 3000 : pause);
       }
       if (!ready) autoNextAt = 0;
+    } else {
+      // A live hand owns the table: a deadline armed during the deal (send()
+      // renders before the new hand lands) must not outlive the hand it was
+      // armed for, or the next result is swallowed instantly.
+      autoNextAt = 0;
     }
     app.innerHTML = tableHTML();
 
