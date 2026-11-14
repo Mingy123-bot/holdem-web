@@ -50,11 +50,10 @@
     color:#ede7da; cursor:pointer; transition:transform .12s, box-shadow .18s, filter .18s}
   button:active{transform:translateY(1px) scale(.985)}
   button:disabled{opacity:.45; cursor:default}
-  button.primary{background:linear-gradient(#e6c689,#c99f52); color:var(--ink); font-weight:800;
-    box-shadow:0 4px 14px #d8b26a33, inset 0 1px 0 #fff6}
-  button.primary:not(:disabled):hover{filter:brightness(1.06); box-shadow:0 6px 22px #d8b26a55, inset 0 1px 0 #fff8}
+  button.primary{background:var(--gold); color:var(--ink); font-weight:800}
+  button.primary:not(:disabled):hover{filter:brightness(1.06)}
   button.ghost{background:#ffffff0a; border:1px solid #ffffff1f}
-  button.call{background:linear-gradient(#379972,#256b52); box-shadow:0 4px 14px #2e7d5b44, inset 0 1px 0 #fff3}
+  button.call{background:#3fbf8f; color:#04201a; font-weight:800}
   select,input[type=text],input[type=number]{font:inherit; background:var(--deep); color:#ede7da;
     border:1px solid #ffffff1f; border-radius:9px; padding:9px}
   input[type=number]{width:96px}
@@ -233,10 +232,8 @@
   .corner.r{right:10px}
   .corner.off{opacity:0; transform:translateY(8px); pointer-events:none}
   .corner button{height:34px; border-radius:11px; font-size:13px; font-weight:800; padding:0 6px}
-  .corner.l button.call{background:linear-gradient(#4cc79a,#2c8a66); color:#04201a;
-    box-shadow:0 0 22px #3fd39a55, inset 0 1px 0 #fff5}
-  .corner.r button.primary{background:linear-gradient(#f6dfae,#c99f52); color:#241a06;
-    box-shadow:0 0 26px #f5cf8a99, inset 0 1px 0 #fff9}
+  .corner.l button.call{background:#3fbf8f; color:#04201a}
+  .corner.r button.primary{background:var(--gold); color:var(--ink)}
   .corner .step{font-size:18px; line-height:1; padding:0; touch-action:none; user-select:none;
     -webkit-user-select:none}
   .corner input{height:34px; width:100%; text-align:center; font:inherit; font-weight:900; font-size:16px;
