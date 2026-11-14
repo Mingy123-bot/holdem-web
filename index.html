@@ -591,8 +591,8 @@ window.leave = async () => {
   const r = room;
   if (!r) return;
   try {
-    // Fold first: the server will not cash you out mid-hand, and the optimistic
-    // version of this left the lobby showing you as gone while you were seated.
+    // The server folds you out of a live hand and keeps whatever is on the felt:
+    // leaving is not a cash-out. The seat is swept after the hand settles.
     await post(`/tables/${r.id}/leave`);
   } catch (e) {
     err = e.message || String(e);
