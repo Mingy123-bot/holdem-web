@@ -236,9 +236,12 @@
     box-shadow:none; filter:none}
   .bottom .row button.ghost{flex:.85}
   .bottom .row button.call,.bottom .row button.primary{flex:1.15}
-  #pullHint{position:fixed; top:calc(8px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%);
-    z-index:30; font-size:12px; color:var(--gold); background:#0a1f19e6; border:1px solid #d8b26a55;
-    border-radius:999px; padding:5px 12px; opacity:0; transition:opacity .15s; pointer-events:none}
+  #pullSpin{position:fixed; left:50%; top:calc(8px + env(safe-area-inset-top)); width:24px; height:24px;
+    margin-left:-12px; border-radius:50%; border:2px solid #d8b26a3d; border-top-color:var(--gold);
+    opacity:0; z-index:30; pointer-events:none; will-change:transform,opacity}
+  #pullSpin.spinning{animation:spin .6s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .wrap{transition:transform .3s cubic-bezier(.2,.9,.3,1)}
   .results{background:linear-gradient(#12352b,#0a211a); border:1px solid #d8b26a44; border-radius:14px;
     padding:12px; animation:popIn .45s cubic-bezier(.2,1.5,.4,1) both; box-shadow:0 16px 40px #0007}
   @keyframes popIn{from{opacity:0; transform:translateY(18px) scale(.94)} to{opacity:1; transform:none}}
@@ -457,18 +460,26 @@ async function ensureSession() {
 
 // ---------------------------------------------------------------- boot
 
+/** Reconnect: a refresh, a locked phone, or hosting lands you at your table. */
+async function enterMyTable() {
+  if (!me?.table) return false;
+  const mine = rooms.find((r) => r.id === me.table);
+  if (!mine) return false;
+  try {
+    const v = await post(`/tables/${mine.id}`);
+    room = mine;
+    view = v;
+    startPolling();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function boot() {
   await ensureSession();
   await loadLobby();
-
-  // Reconnect: a refresh or a locked phone must land you back at your table.
-  if (me?.table) {
-    room = rooms.find((r) => r.id === me.table) || null;
-    if (room) {
-      try { view = await post(`/tables/${room.id}`); startPolling(); }
-      catch { room = null; }
-    }
-  }
+  await enterMyTable();
   render(true);
 }
 
@@ -501,6 +512,7 @@ window.host = async (ev) => {
     await post("/tables", body);
     err = "";
     await loadLobby();
+    await enterMyTable();   // the server seats the host, so go straight in
   } catch (e) {
     err = e.message || String(e);
   } finally {
@@ -1102,7 +1114,7 @@ function paint(force = false) {
   </form>`;
 
   app.innerHTML = `<div class="wrap">
-    <div id="pullHint">pull to refresh</div>
+    <div id="pullSpin"></div>
     <div class="lobby-h"><h1>Hold'em</h1>
       <span class="muted bank">${esc(name)} <span class="chip">${fmt(balance)} chips</span></span></div>
     ${presets.length ? host : ""}
@@ -1113,35 +1125,59 @@ function paint(force = false) {
   </div>`;
 }
 
-// Pull down to refresh the table list. The browser's own pull-to-refresh is
-// off (overscroll-behavior), and the lobby is the only place this applies.
+// Pull the lobby down to refresh it. The browser's own gesture is off
+// (overscroll-behavior), so this is the whole thing: the content follows the
+// finger through a rubber band that never passes MAX, a spinner fades in as you
+// pull, and letting go past TRIGGER spins it while the list reloads.
 (function pullToRefresh() {
+  const MAX = 132, TRIGGER = 64;
   let startY = null, pull = 0;
-  const hint = () => document.getElementById("pullHint");
-  const setHint = (text, on) => {
-    const h = hint();
-    if (!h) return;
-    h.textContent = text;
-    h.style.opacity = on ? "1" : "0";
-  };
+
+  const wrap = () => document.querySelector(".wrap");
+  const spinner = () => document.getElementById("pullSpin");
+  // same shape as iOS: infinite travel, asymptotically MAX
+  const damp = (raw) => MAX * (1 - 1 / (raw / MAX + 1));
+
+  function paint(p, ms) {
+    const w = wrap(), s = spinner();
+    if (!w || !s) return;
+    w.style.transition = ms ? `transform ${ms}ms cubic-bezier(.2,.9,.3,1)` : "none";
+    w.style.transform = p > 0.5 ? `translate3d(0,${p}px,0)` : "";
+    s.style.opacity = Math.min(1, p / TRIGGER).toFixed(2);
+    if (!s.classList.contains("spinning")) s.style.transform = `rotate(${p * 2.2}deg)`;
+  }
+
   document.addEventListener("touchstart", (e) => {
-    const w = document.querySelector(".wrap");
-    if (!room && !busy && w && w.scrollTop <= 0) { startY = e.touches[0].clientY; pull = 0; }
-    else startY = null;
+    if (room || busy || !wrap() || window.scrollY > 0) { startY = null; return; }
+    startY = e.touches[0].clientY;
+    pull = 0;
   }, { passive: true });
+
   document.addEventListener("touchmove", (e) => {
     if (startY === null) return;
-    pull = e.touches[0].clientY - startY;
-    setHint(pull > 70 ? "release to refresh" : "pull to refresh", pull > 20);
+    const raw = e.touches[0].clientY - startY;
+    pull = raw > 0 ? damp(raw) : 0;
+    paint(pull, 0);
   }, { passive: true });
+
   document.addEventListener("touchend", async () => {
-    const go = pull > 70;
-    startY = null; pull = 0;
-    setHint("", false);
-    if (!go || busy) return;
+    if (startY === null) return;
+    startY = null;
+    if (pull < TRIGGER) { pull = 0; paint(0, 260); return; }
+    const s = spinner();
+    pull = 0;
+    s.classList.add("spinning");
+    paint(TRIGGER, 140);
+    const at = Date.now();
     try { await loadLobby(); err = ""; } catch (e) { err = e.message; }
+    // a spinner that blinks for 80ms is worse than none
+    await new Promise((r) => setTimeout(r, Math.max(0, 400 - (Date.now() - at))));
+    s.classList.remove("spinning");
+    s.style.transform = "";
+    paint(0, 300);
+    await new Promise((r) => setTimeout(r, 300));
     render(true);
-  });
+  }, { passive: true });
 })();
 
 boot().catch((e) => { err = e.message; render(true); });
