@@ -187,15 +187,10 @@
   .warn{color:#ff8a80; font-size:10px; font-weight:800}
   .holemini{position:absolute; left:50%; bottom:-27px; transform:translateX(-50%); display:flex; gap:2px}
   .holemini .card{animation:flipIn .5s both; animation-delay:calc(var(--i,0)*90ms)}
-  .float{position:absolute; left:50%; top:-22px; transform:translateX(-50%);
-    font-size:11px; font-weight:900; letter-spacing:.5px; color:#ffe08a; white-space:nowrap;
-    text-shadow:0 2px 8px #000c, 0 0 18px #d8b26a99; pointer-events:none;
-    animation:floatUp 1.5s cubic-bezier(.2,.8,.3,1) forwards; z-index:6}
-  @keyframes floatUp{
-    0%{opacity:0; transform:translate(-50%,10px) scale(.8)}
-    18%{opacity:1; transform:translate(-50%,-4px) scale(1.12)}
-    70%{opacity:1; transform:translate(-50%,-16px) scale(1)}
-    100%{opacity:0; transform:translate(-50%,-30px) scale(.95)}}
+  /* what this seat did this street: it stays until the street does */
+  .seat .act{margin-top:2px; font-size:9px; font-weight:900; letter-spacing:.6px;
+    color:#ffe08a; text-transform:uppercase; animation:fadeIn .18s ease-out both}
+  .seat .act.fold{color:#9fb3a8}
 
   /* ---------- centre ---------- */
   .center{position:absolute; left:50%; top:calc(var(--ccy)*1%); transform:translate(-50%,-50%);
@@ -231,7 +226,15 @@
     background:#0000003d; border:1px solid #ffffff12; border-radius:12px; padding:6px 11px}
   .raisebox input[type=range]{flex:1; accent-color:var(--gold); height:22px}
   .raisebox .amt{color:var(--gold); font-weight:900; min-width:56px; text-align:right; font-variant-numeric:tabular-nums}
-  .bottom.myturn .row button{box-shadow:0 0 26px #d8b26a3d}
+  .bottom.myturn .row button{filter:brightness(1.15);
+    box-shadow:0 0 30px #d8b26a55, 0 6px 18px #0006}
+  .bottom.myturn .row button.call{background:linear-gradient(#4cc79a,#2c8a66);
+    box-shadow:0 0 34px #3fd39a77, inset 0 1px 0 #fff5}
+  .bottom.myturn .row button.primary{box-shadow:0 0 40px #f5cf8aa8, inset 0 1px 0 #fff9}
+  .bottom.myturn .row button.ghost{background:#ffffff2e; border-color:#ffffff55; color:#fff}
+  #pullHint{position:fixed; top:calc(8px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%);
+    z-index:30; font-size:12px; color:var(--gold); background:#0a1f19e6; border:1px solid #d8b26a55;
+    border-radius:999px; padding:5px 12px; opacity:0; transition:opacity .15s; pointer-events:none}
   .results{background:linear-gradient(#12352b,#0a211a); border:1px solid #d8b26a44; border-radius:14px;
     padding:12px; animation:popIn .45s cubic-bezier(.2,1.5,.4,1) both; box-shadow:0 16px 40px #0007}
   @keyframes popIn{from{opacity:0; transform:translateY(18px) scale(.94)} to{opacity:1; transform:none}}
@@ -727,13 +730,22 @@ function takeSnapshot(h) {
 
 /** What a seat did, judged from the previous snapshot. Only fires on a changed
  *  bet, a fold, or going all-in — it never guesses a check. */
-function seatFloat(ps, seat) {
-  const before = snap.players[seat];
-  if (!ps || !before) return null;
-  if (!before.folded && ps.folded) return "FOLD";
-  if (ps.bet > before.bet) return ps.bet > snap.currentBet ? `RAISE ${ps.bet}` : `CALL ${ps.bet - before.bet}`;
-  if (ps.allIn && !before.allIn) return "ALL IN";
-  return null;
+/** What this seat last did in the current street, straight from the hand log. */
+function actionLabel(h, seat) {
+  if (!h || !h.log) return null;
+  const streetLog = h.log.filter((e) => e.street === h.street);
+  let idx = -1;
+  streetLog.forEach((e, i) => { if (e.seat === seat) idx = i; });
+  if (idx < 0) return null;
+  const last = streetLog[idx];
+  if (last.type === "fold") return "FOLD";
+  if (last.type === "check") return "CHECK";
+  const ps = h.players?.find((p) => p.seat === seat);
+  if (ps?.allIn) return "ALL IN";
+  if (last.type === "call") return `CALL ${last.amount}`;
+  // the street's first aggressive action is a bet; after that they are raises
+  const opened = streetLog.slice(0, idx).some((e) => e.type === "raise");
+  return `${opened || h.street === "preflop" ? "RAISE" : "BET"} ${last.amount}`;
 }
 
 function confetti(n = 70) {
@@ -792,11 +804,8 @@ function seatHTML(seatIdx, info, h, me, at) {
 
   const rev = seatIdx === me ? null : (h?.results?.revealed?.find((r) => r.seat === seatIdx) || null);
   const revealed = rev?.hole || [];
-  // a new hand's blinds are not actions: only label deltas within the same hand
-  const sameHand = h && h.handNo === snap.handNo;
-  const label = !sameHand ? null
-    : pendingFloat?.seat === seatIdx ? pendingFloat.label
-    : seatFloat(ps, seatIdx);
+  // an optimistic label for the second it takes the poll to land, then the log
+  const label = pendingFloat?.seat === seatIdx ? pendingFloat.label : actionLabel(h, seatIdx);
   // seek the bar into the animation instead of restarting it on every rebuild
   const waited = h?.actingAt ? Math.max(0, (now() - Date.parse(h.actingAt)) / 1000) : 0;
   const warn = (info.timeouts ?? 0) > 0 ? '<span class="warn">⚠</span>' : "";
@@ -805,12 +814,12 @@ function seatHTML(seatIdx, info, h, me, at) {
   return `
     <div class="${cls.join(" ")}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%;--si:${at?.slot ?? 0}">
       ${h && h.dealer === seatIdx ? '<div class="dbtn">D</div>' : ""}
-      ${label ? `<div class="float">${esc(label)}</div>` : ""}
       ${wonAt > 0 ? `<div class="won">+${wonAt}</div>` : ""}
       <div class="head"><div class="av">${esc(who.slice(0, 1).toUpperCase())}</div>
         <div class="nm">${esc(who)}</div>${warn}</div>
       <div class="st">${ps?.stack ?? info.stack}</div>
       ${ps?.allIn ? '<div class="allin">ALL IN</div>' : ""}
+      ${label ? `<div class="act${label === "FOLD" ? " fold" : ""}">${esc(label)}</div>` : ""}
       ${rev?.best?.name ? `<div class="handname">${esc(rev.best.name)}</div>` : ""}
       ${revealed.length ? `<div class="holemini">${revealed.map((c, i) => cardHTML(c, "xs" + (rev.best?.cards?.includes(c) ? " hl" : ""), i)).join("")}</div>` : ""}
       ${isTurn ? `<div class="timer"><i style="animation-delay:-${waited.toFixed(1)}s"></i></div>
@@ -1061,6 +1070,7 @@ function paint(force = false) {
   </form>`;
 
   app.innerHTML = `<div class="wrap">
+    <div id="pullHint">pull to refresh</div>
     <div class="lobby-h"><h1>Hold'em</h1>
       <span class="muted bank">${esc(name)} <span class="chip">${fmt(balance)} chips</span></span></div>
     ${presets.length ? host : ""}
@@ -1070,6 +1080,37 @@ function paint(force = false) {
     <p class="foot">Play money, nothing to cash out. A table with fewer than two players for 5 minutes is deleted and the chips come back.</p>
   </div>`;
 }
+
+// Pull down to refresh the table list. The browser's own pull-to-refresh is
+// off (overscroll-behavior), and the lobby is the only place this applies.
+(function pullToRefresh() {
+  let startY = null, pull = 0;
+  const hint = () => document.getElementById("pullHint");
+  const setHint = (text, on) => {
+    const h = hint();
+    if (!h) return;
+    h.textContent = text;
+    h.style.opacity = on ? "1" : "0";
+  };
+  document.addEventListener("touchstart", (e) => {
+    const w = document.querySelector(".wrap");
+    if (!room && !busy && w && w.scrollTop <= 0) { startY = e.touches[0].clientY; pull = 0; }
+    else startY = null;
+  }, { passive: true });
+  document.addEventListener("touchmove", (e) => {
+    if (startY === null) return;
+    pull = e.touches[0].clientY - startY;
+    setHint(pull > 70 ? "release to refresh" : "pull to refresh", pull > 20);
+  }, { passive: true });
+  document.addEventListener("touchend", async () => {
+    const go = pull > 70;
+    startY = null; pull = 0;
+    setHint("", false);
+    if (!go || busy) return;
+    try { await loadLobby(); err = ""; } catch (e) { err = e.message; }
+    render(true);
+  });
+})();
 
 boot().catch((e) => { err = e.message; render(true); });
 </script>
