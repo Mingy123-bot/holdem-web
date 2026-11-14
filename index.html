@@ -55,7 +55,16 @@
   button.primary:not(:disabled):hover{filter:brightness(1.06); box-shadow:0 6px 22px #d8b26a55, inset 0 1px 0 #fff8}
   button.ghost{background:#ffffff0a; border:1px solid #ffffff1f}
   button.call{background:linear-gradient(#379972,#256b52); box-shadow:0 4px 14px #2e7d5b44, inset 0 1px 0 #fff3}
-  select{font:inherit; background:var(--deep); color:#ede7da; border:1px solid #ffffff1f; border-radius:9px; padding:9px}
+  select,input[type=text],input[type=number]{font:inherit; background:var(--deep); color:#ede7da;
+    border:1px solid #ffffff1f; border-radius:9px; padding:9px}
+  input[type=number]{width:96px}
+  .hostcard{display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+    background:linear-gradient(#14503c22,#0e2a2288); border:1px dashed #d8b26a44;
+    border-radius:15px; padding:12px 14px; margin-bottom:16px}
+  .hostcard input[type=text]{flex:1; min-width:130px}
+  .bank{display:inline-flex; align-items:center; gap:6px}
+  .chip{background:#d8b26a22; border:1px solid #d8b26a55; color:var(--gold);
+    border-radius:999px; padding:3px 10px; font-weight:700; font-size:13px}
 
   /* ---------- lobby ---------- */
   .wrap{max-width:640px; margin:0 auto; padding:22px 18px calc(18px + env(safe-area-inset-bottom));
@@ -320,6 +329,7 @@ const STORE_NAME = "holdem.name";
 let S = { access: null, uid: null };  // an account is just its uid
 let name = localStorage.getItem(STORE_NAME) || "";
 let rooms = [], seats = [], room = null, view = null;
+let balance = 0, presets = [];
 let err = "", busy = false, dragging = false, raiseTo = null;
 let gen = 0;
 let lastSig = "";
@@ -457,11 +467,52 @@ async function boot() {
 }
 
 async function loadLobby() {
-  [rooms, seats] = await Promise.all([
+  const [r, s, me, pr] = await Promise.all([
     api("/rest/v1/rooms?select=id,name,sb,bb&order=sb", { method: "GET" }),
     api("/rest/v1/seats?select=room_id,seat,player_id,stack", { method: "GET" }),
+    rpc("me", {}),
+    api("/rest/v1/presets", { method: "GET" }),
   ]);
+  rooms = r; seats = s; balance = me.balance ?? 0; presets = pr || [];
 }
+
+const fmt = (n) => (n ?? 0).toLocaleString();
+const presetLabel = (p) => `${p.sb}/${p.bb} · ${fmt(p.min_buyin)}–${fmt(p.max_buyin)}`;
+
+/** Host a table at one of the fixed stake presets. */
+window.host = async (ev) => {
+  ev.preventDefault();
+  if (busy) return;
+  // Read the form before repainting: render() rebuilds the inputs empty.
+  const nameEl = document.getElementById("hostName");
+  const presetEl = document.getElementById("hostPreset");
+  const body = {
+    p_name: nameEl ? nameEl.value.trim() : "",
+    p_preset: Number(presetEl ? presetEl.value : 0),
+  };
+  busy = true;
+  try {
+    render(true);
+    await rpc("create_table", body);
+    err = "";
+    await loadLobby();
+  } catch (e) {
+    err = e.message || String(e);
+  } finally {
+    busy = false;
+  }
+  render(true);
+};
+
+/** One free stake when the balance hits zero, so an account can't be bricked. */
+window.topup = async () => {
+  if (busy) return;
+  busy = true;
+  try { balance = (await rpc("topup", {})).balance; err = ""; }
+  catch (e) { err = e.message; }
+  finally { busy = false; }
+  render(true);
+};
 
 // ---------------------------------------------------------------- lobby
 
@@ -503,10 +554,19 @@ window.sit = async (roomId, buyin) => {
 };
 
 window.leave = async () => {
-  gen++;
   const r = room;
+  if (!r) return;
+  try {
+    // Fold first: the server will not cash you out mid-hand, and the optimistic
+    // version of this left the lobby showing you as gone while you were seated.
+    await rpc("leave_table", { p_room: r.id });
+  } catch (e) {
+    err = e.message || String(e);
+    render(true);
+    return;
+  }
+  gen++;
   room = null; view = null; raiseTo = null; lastSig = ""; pendingFloat = null; autoNextAt = 0; logOpen = false;
-  try { if (r) await rpc("leave_table", { p_room: r.id }); } catch (e) { err = e.message; }
   try { await loadLobby(); } catch (e) { err = e.message; }
   render(true);
 };
@@ -926,9 +986,11 @@ function refreshTable() {
 function stateSig() {
   const h = view?.hand;
   return [
-    name, room?.id || "-", busy ? 1 : 0, err,
-    rooms.map((r) => r.id).join(","),
-    seats.map((s) => s.seat + ":" + s.stack).join(","),
+    name, room?.id || "-", busy ? 1 : 0, err, balance, presets.length,
+    rooms.map((r) => `${r.id}:${r.seated}:${r.min_buyin}:${r.max_buyin}`).join(","),
+    // At a table the live seats matter, not the lobby snapshot: a second player
+    // arriving has to repaint or the deal timer never arms.
+    (room ? view?.seats || [] : seats).map((s) => `${s.seat}:${s.stack}:${s.name || ""}`).join(","),
     h ? [h.handNo, h.version, h.street, h.toAct, h.pot, h.currentBet, h.board.length,
       h.players.map((p) => `${p.seat},${p.stack},${p.bet},${p.folded ? 1 : 0}`).join(";")].join("/") : "-",
     (h?.results?.pots || []).map((p) => p.amount).join(","),
@@ -998,21 +1060,35 @@ function paint(force = false) {
   }
 
   const rows = rooms.map((r, i) => {
-    const occupied = seats.filter((s) => s.room_id === r.id).length;
-    const opts = [20, 50, 100].map((bb) => `<option value="${bb * r.bb}">${bb * r.bb} (${bb} BB)</option>`).join("");
+    const occupied = r.seated ?? seats.filter((s) => s.room_id === r.id).length;
+    const broke = balance < r.min_buyin;
     return `<div class="room" style="animation-delay:${i * 60}ms">
-      <div class="grow"><b>${esc(r.name)}</b><small>${r.sb}/${r.bb} · ${occupied}/9 seated</small></div>
-      <select id="buy-${r.id}">${opts}</select>
-      <button class="primary" onclick="sit('${r.id}', Number(document.getElementById('buy-${r.id}').value))"
-        ${occupied >= 9 ? "disabled" : ""}>Sit</button>
+      <div class="grow"><b>${esc(r.name)}</b>
+        <small>${r.sb}/${r.bb} · ${fmt(r.min_buyin)}–${fmt(r.max_buyin)} · ${occupied}/9 seated${
+          r.host_name ? ` · hosted by ${esc(r.host_name)}` : ""}</small></div>
+      <input type="number" id="buy-${r.id}" value="${r.min_buyin}" min="${r.min_buyin}"
+        max="${r.max_buyin}" step="${r.sb}" inputmode="numeric">
+      <button class="primary" ${occupied >= 9 || broke ? "disabled" : ""}
+        onclick="sit('${r.id}', Number(document.getElementById('buy-${r.id}').value))"
+        title="${broke ? "not enough chips" : ""}">Sit</button>
     </div>`;
   }).join("");
 
+  const host = `<form class="hostcard" onsubmit="host(event)">
+    <input type="text" id="hostName" maxlength="24" placeholder="Table name (optional)">
+    <select id="hostPreset">${presets.map((p, i) =>
+      `<option value="${i}">${presetLabel(p)}</option>`).join("")}</select>
+    <button class="primary" ${busy ? "disabled" : ""}>Host</button>
+  </form>`;
+
   app.innerHTML = `<div class="wrap">
-    <div class="lobby-h"><h1>Hold'em</h1><span class="muted">${esc(name)}</span></div>
-    ${rows || '<p class="muted">Loading tables…</p>'}
+    <div class="lobby-h"><h1>Hold'em</h1>
+      <span class="muted bank">${esc(name)} <span class="chip">${fmt(balance)} chips</span></span></div>
+    ${presets.length ? host : ""}
+    ${rows || '<p class="muted">No tables yet — host one above.</p>'}
+    ${balance <= 0 ? '<button class="ghost" style="width:100%;margin-bottom:12px" onclick="topup()">Out of chips — take a free 1,000</button>' : ""}
     <p class="err">${esc(err)}</p>
-    <p class="foot">Play money, nothing to cash out. Open this page on a second device to fill the table — two players minimum.</p>
+    <p class="foot">Play money, nothing to cash out. A table with fewer than two players for 5 minutes is deleted and the chips come back.</p>
   </div>`;
 }
 
