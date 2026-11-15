@@ -187,7 +187,7 @@
   .timer{position:absolute; left:9px; right:9px; bottom:-5px; height:3px; border-radius:3px;
     background:#ffffff1f; overflow:hidden}
   .timer i{display:block; height:100%; background:linear-gradient(90deg,#d8b26a,#ffb74d);
-    transform-origin:left; animation:drain 30s linear forwards}
+    transform-origin:left; animation:drain var(--turn,30s) linear forwards}
   @keyframes drain{from{transform:scaleX(1)} to{transform:scaleX(0)}}
   .warn{color:#ff8a80; font-size:10px; font-weight:800}
   .holemini{position:absolute; left:50%; bottom:-27px; transform:translateX(-50%); display:flex; gap:2px}
@@ -221,6 +221,8 @@
     box-shadow:0 12px 26px #0008, 0 0 0 1px #ffffff22}
   @keyframes dealIn{from{opacity:0; transform:translateY(-56px) rotate(-10deg) scale(.7)} to{opacity:1; transform:none}}
   .row{display:flex; gap:8px; justify-content:center; align-items:center}
+  .sitbar{display:flex; gap:8px; justify-content:center; align-items:center; pointer-events:auto}
+  .sitbar input{width:110px}
   .status{position:absolute; left:50%; transform:translateX(-50%); z-index:9;
     bottom:calc(128px + env(safe-area-inset-bottom)); width:max-content; max-width:92%; text-align:center}
 
@@ -372,7 +374,7 @@ let lastSig = "";
 let pendingFloat = null;
 let autoNextAt = 0;   // when the next hand deals itself
 let logOpen = false;
-const TURN_SEC = 30;
+const turnSec = () => view?.room?.turn_s ?? 30;   // the table's clock, not a build constant
 // between hands is the table's own hand_pause, see paint()
 const AUTO_START_MS = 5000;  // first hand at a table that just became ready
 
@@ -566,6 +568,29 @@ window.saveName = async (ev) => {
   if (!rooms.length) { try { await loadLobby(); } catch (e) { err = e.message; } render(true); }
 };
 
+/** Watch a table without buying in. A spectator is just a player with no seat. */
+window.watch = async (roomId) => {
+  if (busy) return;
+  busy = true;
+  try {
+    render(true);
+    view = await post(`/tables/${roomId}`);
+    room = rooms.find((r) => r.id === roomId) || { id: roomId, ...view.room };
+    err = "";
+  } catch (e) {
+    err = e.message || String(e);
+  } finally {
+    busy = false;
+  }
+  if (room) startPolling();
+  render(true);
+};
+
+window.sitHere = () => {
+  const el = document.getElementById("buyin");
+  sit(room.id, Math.round(Number(el ? el.value : room.min_buyin) || room.min_buyin));
+};
+
 window.sit = async (roomId, buyin) => {
   if (busy) return;
   busy = true;
@@ -573,7 +598,7 @@ window.sit = async (roomId, buyin) => {
     render(true);
     // The server seats you: no free-seat race to lose.
     const v = await post(`/tables/${roomId}/sit`, { buyin });
-    room = rooms.find((r) => r.id === roomId);
+    room = rooms.find((r) => r.id === roomId) || (room && room.id === roomId ? room : view?.room);
     view = v;
     err = "";
     SFX.chip();
@@ -611,16 +636,6 @@ function mySeat() {
   return view?.seats.find((s) => s.playerId === S.uid)?.seat ?? -1;
 }
 
-/** Removed from the table from the server's side: drop back to the lobby. */
-function kickHome() {
-  const r = room;
-  gen++;
-  room = null; view = null; raiseTo = null; lastSig = ""; pendingFloat = null;
-  autoNextAt = 0; logOpen = false;
-  err = r ? "You were removed from that table for inactivity." : "";
-  loadLobby().catch(() => {}).finally(() => render(true));
-}
-
 function startPolling() {
   const g = ++gen;
   const loop = async () => {
@@ -631,15 +646,10 @@ function startPolling() {
       const stale = cur && inc && (inc.handNo < cur.handNo || (inc.handNo === cur.handNo && inc.version < cur.version));
       if (!stale) { view = v; err = ""; }
       if (v.serverNow) skew = Date.parse(v.serverNow) - Date.now();
-      // Kicked for inactivity: the seat row is gone while the hand still lists me.
-      if (v.hand?.you && !(v.seats || []).some((s) => s.playerId === S.uid)) {
-        kickHome();
-        return;
-      }
       const hh = v.hand;
       // Hands deal themselves. Every client asks; unique(room_id, hand_no)
       // makes the losers of the race harmless.
-      if ((!hh || hh.street === "complete") && autoNextAt && now() > autoNextAt) {
+      if ((!hh || hh.street === "complete") && autoNextAt && now() > autoNextAt && mySeat() >= 0) {
         autoNextAt = null;
         send("next");
       }
@@ -685,14 +695,6 @@ window.act = (type, to) => {
 };
 
 window.deal = () => { autoNextAt = 0; send("next"); };
-window.rebuy = async () => {
-  if (busy) return;
-  busy = true;
-  try { view = await post(`/tables/${room.id}/rebuy`, { amount: 50 * room.bb }); err = ""; SFX.chip(); }
-  catch (e) { err = e.message; }
-  busy = false;
-  refreshTable();
-};
 
 // The betting corner. Typing is free-form; every path out of it is clamped to
 // the table's legal range, and holding a step button repeats it.
@@ -771,7 +773,7 @@ function esc(s) {
 /** Server clock, not the phone's: a wrong local clock must not fake a timeout. */
 let skew = 0;
 function now() { return Date.now() + skew; }
-function left(waitedSec) { return Math.max(0, Math.ceil(TURN_SEC - waitedSec)); }
+function left(waitedSec) { return Math.max(0, Math.ceil(turnSec() - waitedSec)); }
 
 // The countdown ticks without a re-render: one interval rewrites the numbers.
 setInterval(() => {
@@ -919,7 +921,7 @@ function seatHTML(seatIdx, info, h, me, at) {
       ${label ? `<div class="act${label === "FOLD" ? " fold" : ""}">${esc(label)}</div>` : ""}
       ${rev?.best?.name ? `<div class="handname">${esc(rev.best.name)}</div>` : ""}
       ${revealed.length ? `<div class="holemini">${revealed.map((c, i) => cardHTML(c, "xs" + (rev.best?.cards?.includes(c) ? " hl" : ""), i)).join("")}</div>` : ""}
-      ${isTurn ? `<div class="timer"><i style="animation-delay:-${waited.toFixed(1)}s"></i></div>
+      ${isTurn ? `<div class="timer"><i style="--turn:${turnSec()}s;animation-delay:-${waited.toFixed(1)}s"></i></div>
         <div class="tsec" data-act="${esc(h.actingAt || "")}">${left(waited)}s</div>` : ""}
     </div>`;
 }
@@ -948,9 +950,8 @@ function tableHTML() {
   let bottom = "";   // status only: errors, sitting out, waiting
   if (err) bottom += `<div class="err">${esc(err)}</div>`;
 
-  if (h && !you) {
-    bottom += `<div class="row"><span class="wait" style="flex:2">Sitting out — no chips</span>
-      <button onclick="rebuy()" ${busy ? "disabled" : ""}>Rebuy ${50 * room.bb}</button></div>`;
+  if (mySeat() < 0) {
+    bottom += `<div class="wait">Watching</div>`;
   } else if (h && h.street === "complete") {
     // nothing to press: the next hand deals itself
   } else if (!h) {
@@ -1008,7 +1009,7 @@ function tableHTML() {
       </div>
       <div class="board">${board}</div>
       ${!h || h.street === "complete" ? (ready
-        ? `<div class="dealwait">dealing in <span id="nextIn">…</span>s</div>`
+        ? (mySeat() >= 0 ? `<div class="dealwait">dealing in <span id="nextIn">…</span>s</div>` : "")
         : `<div class="dealwait">waiting for another player</div>`) : ""}
       ${wonBy.size ? `<div class="wonline">${[...wonBy]
         .map(([s, a]) => `<span>${esc(names[s] || "Seat " + (s + 1))} <b>+${a}</b></span>`).join("")}</div>` : ""}
@@ -1017,8 +1018,14 @@ function tableHTML() {
     </div>
     <div class="status">${bottom}</div>
     <div class="bottom">
-      ${you?.best?.name ? `<div class="myhand">${esc(you.best.name)}</div>` : ""}
-      ${you?.hole?.length ? `<div class="mycards">${you.hole.map((c, i) => cardHTML(c, "lg" + (used.has(c) ? " hl" : ""), i)).join("")}</div>` : ""}
+      ${mySeat() >= 0 ? `${you?.best?.name ? `<div class="myhand">${esc(you.best.name)}</div>` : ""}
+      ${you?.hole?.length ? `<div class="mycards">${you.hole.map((c, i) => cardHTML(c, "lg" + (used.has(c) ? " hl" : ""), i)).join("")}</div>` : ""}`
+      : `<div class="sitbar">
+          <input type="number" id="buyin" value="${room.min_buyin}" min="${room.min_buyin}"
+            max="${room.max_buyin}" step="${room.sb}" inputmode="numeric">
+          <button class="primary" onclick="sitHere()" ${busy ? "disabled" : ""}>Sit in</button>
+        </div>
+        <div class="muted" style="text-align:center;font-size:11px">${fmt(balance)} chips${balance < room.min_buyin ? " — not enough to buy in" : ""}</div>`}
     </div>
     <div class="corner l ${myTurn ? "" : "off"}">
       <button class="ghost" onclick="act('fold')" ${busy ? "disabled" : ""}>Fold</button>
@@ -1172,7 +1179,7 @@ function paint(force = false) {
     if (!h || h.street === "complete") {
       // A hand that died early leaves a reveal to press: give it a longer beat.
       // The pause itself is the table's (host sets it in the pace sheet).
-      if (ready && !autoNextAt) {
+      if (ready && !autoNextAt && mySeat() >= 0) {
         const pause = view?.room?.hand_pause ?? 5000;
         autoNextAt = now() + (!h ? AUTO_START_MS : h.board.length < 5 ? pause + 3000 : pause);
       }
@@ -1212,16 +1219,15 @@ function paint(force = false) {
 
   const rows = rooms.map((r, i) => {
     const occupied = r.seated ?? 0;
-    const broke = balance < r.min_buyin;
-    return `<div class="room" style="animation-delay:${i * 60}ms">
+    // A row opens the table: you watch first, and buy in from the table itself.
+    return `<div class="room" style="animation-delay:${i * 60}ms" onclick="watch('${r.id}')"
+        role="button" tabindex="0" onkeydown="if(event.key==='Enter')watch('${r.id}')">
       <div class="grow"><b>${esc(r.name)}</b>
         <small>${r.sb}/${r.bb} · ${fmt(r.min_buyin)}–${fmt(r.max_buyin)} · ${occupied}/9 seated${
           r.host_name ? ` · hosted by ${esc(r.host_name)}` : ""}</small></div>
-      <input type="number" id="buy-${r.id}" value="${r.min_buyin}" min="${r.min_buyin}"
-        max="${r.max_buyin}" step="${r.sb}" inputmode="numeric">
-      <button class="primary" ${occupied >= 9 || broke ? "disabled" : ""}
-        onclick="sit('${r.id}', Number(document.getElementById('buy-${r.id}').value))"
-        title="${broke ? "not enough chips" : ""}">Sit</button>
+      <button class="primary" ${occupied < 9 ? "" : "disabled"}
+        onclick="event.stopPropagation();watch('${r.id}')"
+        title="${occupied < 9 ? "watch, then buy in" : "table is full"}">${occupied >= 9 ? "Watch" : "Sit"}</button>
     </div>`;
   }).join("");
 
