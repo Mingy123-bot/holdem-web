@@ -371,6 +371,10 @@ let err = "", busy = false, raiseTo = null, lastTurnKey = "";
 let betOpen = false, paceOpen = false;   // centred sheets, not corner inputs
 let gen = 0;
 let lastSig = "";
+// Server-sent pokes. An event carries no state: it says something changed and
+// the page refetches the view it already knows how to draw. The poll below
+// stays as the fallback for when the stream is down (or asleep in a tab).
+let stream = null, live = false, pokedAt = 0;
 let pendingFloat = null;
 // The deal clock is the server's: view.nextAt is when the hand lands, and the
 // page only draws it. There is nothing here to arm, fire, or race.
@@ -504,6 +508,7 @@ async function enterMyTable() {
 
 async function boot() {
   await ensureSession();
+  startStream();
   await loadLobby();
   await enterMyTable();
   render(true);
@@ -636,21 +641,40 @@ function mySeat() {
   return view?.seats.find((s) => s.playerId === S.uid)?.seat ?? -1;
 }
 
+function startStream() {
+  if (stream) stream.close();
+  stream = new EventSource(`${BASE}/stream?token=${encodeURIComponent(S.uid)}`);
+  stream.onopen = () => { live = true; };
+  stream.onerror = () => { live = false; };   // EventSource retries on its own
+  stream.onmessage = () => {
+    // Coalesce: a hand settling is three writes, and one refetch reads them all.
+    const t = Date.now();
+    if (t - pokedAt < 200) return;
+    pokedAt = t;
+    if (room) pullTable().catch(() => {});
+    else loadLobby().then(() => render(true)).catch(() => {});
+  };
+}
+
+/** One fetch of the table's view, and draw it. */
+async function pullTable() {
+  const v = await post(`/tables/${room.id}`);
+  const cur = view?.hand, inc = v.hand;
+  const stale = cur && inc && (inc.handNo < cur.handNo || (inc.handNo === cur.handNo && inc.version < cur.version));
+  if (!stale) { view = v; err = ""; }
+  if (v.serverNow) skew = Date.parse(v.serverNow) - Date.now();
+  refreshTable();
+}
+
 function startPolling() {
   const g = ++gen;
   const loop = async () => {
     if (g !== gen || !room) return;
-    try {
-      const v = await post(`/tables/${room.id}`);
-      const cur = view?.hand, inc = v.hand;
-      const stale = cur && inc && (inc.handNo < cur.handNo || (inc.handNo === cur.handNo && inc.version < cur.version));
-      if (!stale) { view = v; err = ""; }
-      if (v.serverNow) skew = Date.parse(v.serverNow) - Date.now();
-    } catch (e) { err = e.message; }
-    refreshTable();
+    try { await pullTable(); } catch (e) { err = e.message; refreshTable(); }
     const h = view?.hand;
     const myTurn = h && h.street !== "complete" && h.you && h.toAct === h.you.seat;
-    setTimeout(loop, myTurn ? 700 : 1400);
+    // With the stream up the poll is a safety net, not the clock.
+    setTimeout(loop, live ? 5000 : myTurn ? 700 : 1400);
   };
   loop();
 }
