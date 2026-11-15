@@ -372,11 +372,11 @@ let betOpen = false, paceOpen = false;   // centred sheets, not corner inputs
 let gen = 0;
 let lastSig = "";
 let pendingFloat = null;
-let autoNextAt = 0;   // when the next hand deals itself
+// The deal clock is the server's: view.nextAt is when the hand lands, and the
+// page only draws it. There is nothing here to arm, fire, or race.
 let logOpen = false;
 const turnSec = () => view?.room?.turn_s ?? 30;   // the table's clock, not a build constant
 // between hands is the table's own hand_pause, see paint()
-const AUTO_START_MS = 5000;  // first hand at a table that just became ready
 
 // ---------------------------------------------------------------- ambience
 
@@ -625,7 +625,7 @@ window.leave = async () => {
     return;
   }
   gen++;
-  room = null; view = null; raiseTo = null; lastSig = ""; pendingFloat = null; autoNextAt = 0; logOpen = false;
+  room = null; view = null; raiseTo = null; lastSig = ""; pendingFloat = null; logOpen = false;
   try { await loadLobby(); } catch (e) { err = e.message; }
   render(true);
 };
@@ -646,13 +646,6 @@ function startPolling() {
       const stale = cur && inc && (inc.handNo < cur.handNo || (inc.handNo === cur.handNo && inc.version < cur.version));
       if (!stale) { view = v; err = ""; }
       if (v.serverNow) skew = Date.parse(v.serverNow) - Date.now();
-      const hh = v.hand;
-      // Hands deal themselves. Every client asks; unique(room_id, hand_no)
-      // makes the losers of the race harmless.
-      if ((!hh || hh.street === "complete") && autoNextAt && now() > autoNextAt && mySeat() >= 0) {
-        autoNextAt = null;
-        send("next");
-      }
     } catch (e) { err = e.message; }
     refreshTable();
     const h = view?.hand;
@@ -694,7 +687,6 @@ window.act = (type, to) => {
   send("act", type === "raise" ? { type, to } : { type });
 };
 
-window.deal = () => { autoNextAt = 0; send("next"); };
 
 // The betting corner. Typing is free-form; every path out of it is clamped to
 // the table's legal range, and holding a step button repeats it.
@@ -782,7 +774,7 @@ setInterval(() => {
     if (!Number.isNaN(t)) el.textContent = left((now() - t) / 1000) + "s";
   });
   const nx = document.getElementById("nextIn");
-  if (nx) nx.textContent = autoNextAt ? String(Math.max(0, Math.ceil((autoNextAt - now()) / 1000))) : "–";
+  if (nx) nx.textContent = String(view?.nextAt ? Math.max(0, Math.ceil((view.nextAt - now()) / 1000)) : 0);
 }, 400);
 
 let GEO = null;
@@ -1173,23 +1165,8 @@ function paint(force = false) {
 
   if (room) {
     const h = view?.hand;
-    // A table with chips and no live hand deals itself: 5s the first time, the
-    // table's own pause between hands so there is a beat to read the result.
+    // A table with chips and no live hand deals itself, on the server's clock.
     const ready = (view.seats || []).filter((s) => s.stack > 0).length >= 2;
-    if (!h || h.street === "complete") {
-      // A hand that died early leaves a reveal to press: give it a longer beat.
-      // The pause itself is the table's (host sets it in the pace sheet).
-      if (ready && !autoNextAt && mySeat() >= 0) {
-        const pause = view?.room?.hand_pause ?? 5000;
-        autoNextAt = now() + (!h ? AUTO_START_MS : h.board.length < 5 ? pause + 3000 : pause);
-      }
-      if (!ready) autoNextAt = 0;
-    } else {
-      // A live hand owns the table: a deadline armed during the deal (send()
-      // renders before the new hand lands) must not outlive the hand it was
-      // armed for, or the next result is swallowed instantly.
-      autoNextAt = 0;
-    }
     app.innerHTML = tableHTML();
 
     // ---- effects, once per state change (render only runs when state moved)
