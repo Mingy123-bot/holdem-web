@@ -1052,15 +1052,16 @@ function tableHTML() {
       ${you ? `<button class="call" onclick="act('${you.canCheck ? "check" : "call"}')" ${busy ? "disabled" : ""}>
         ${you.canCheck ? "Check" : `Call ${you.toCall}`}</button>` : ""}
     </div>
-    ${canRaise && you ? `
+    ${you?.canRaise ? `
     <div class="corner r ${myTurn ? "" : "off"}">
-      <button class="ghost" onclick="setAmt(${you.maxRaiseTo})" ${busy ? "disabled" : ""}>All in</button>
+      ${canRaise ? `<button class="ghost" onclick="setAmt(${you.maxRaiseTo})" ${busy ? "disabled" : ""}>All in</button>
       <button class="ghost step" onpointerdown="holdStep(event, 1)" onpointerup="holdStop()"
               onpointerleave="holdStop()" onpointercancel="holdStop()">+</button>
       <button class="ghost amtbtn" id="amtBtn" onclick="openBet()">${raiseTo}</button>
       <button class="ghost step" onpointerdown="holdStep(event, -1)" onpointerup="holdStop()"
               onpointerleave="holdStop()" onpointercancel="holdStop()">−</button>
-      <button class="primary" onclick="betNow()" ${busy ? "disabled" : ""}>Bet</button>
+      <button class="primary" onclick="betNow()" ${busy ? "disabled" : ""}>Bet</button>`
+      : `<button class="primary" onclick="act('raise', ${you.maxRaiseTo})" ${busy ? "disabled" : ""}>All in ${you.maxRaiseTo}</button>`}
     </div>` : ""}
     ${betOpen ? `<div class="sheet" onclick="if(event.target===this)closeBet()">
       <div class="sheetcard">
