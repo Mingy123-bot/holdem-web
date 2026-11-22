@@ -10,8 +10,7 @@
     --felt:#0b3d2e; --felt2:#14503c; --dark:#071611; --deep:#0e2a22;
     --ink:#0a1512; --paper:#f5f1e6; --gold:#d8b26a; --muted:#9fb3a8; --red:#c62828;
     /* table geometry in % of viewport; the media query reshapes it for phones */
-    --rx:38; --ry:24; --cy:36;
-    --fx:12; --fw:76; --fy:13; --fh:54; --ccy:40;
+    --rx:38; --ry:27; --cy:39;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
   html,body{height:100%}
@@ -85,8 +84,8 @@
 
   /* ---------- table ---------- */
   .felt{position:absolute; border-radius:50%;
-    left:calc(var(--fx)*1%); top:calc(var(--fy)*1%);
-    width:calc(var(--fw)*1%); height:calc(var(--fh)*1%);
+    left:calc(50% - var(--rx)*1% - 6%); top:calc((var(--cy) - var(--ry))*1% - 5%);
+    width:calc(var(--rx)*2% + 12%); height:calc(var(--ry)*2% + 10%);
     background:radial-gradient(75% 75% at 50% 18%, #1d7257 0%, #14503c 45%, #0d3d2d 78%, #082a20 100%);
     box-shadow:
       0 0 0 3px #2a1a10,
@@ -112,7 +111,7 @@
   .room-pill{background:#00000055; border:1px solid #ffffff14; border-radius:999px; padding:6px 12px}
 
   /* ---------- seats ---------- */
-  .seat{position:absolute; transform:translate(-50%,-50%); width:108px; padding:7px 8px;
+  .seat{position:absolute; transform:translate(-50%,-50%); width:var(--sw,120px); padding:6px 9px;
     background:linear-gradient(#0f3228e6,#081c16e6); border:1px solid #ffffff22; border-radius:13px;
     font-size:11px; line-height:1.25; z-index:2; backdrop-filter:blur(3px);
     transition:opacity .3s, filter .3s, border-color .2s, box-shadow .2s;
@@ -137,12 +136,12 @@
   .seat .nm{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#cfe0d5;
     flex:1; min-width:0}
   .seat.me .nm{color:var(--gold)}
-  .seat .st{font-weight:800; font-size:11.5px; color:#fff; font-variant-numeric:tabular-nums;
-    margin-left:auto; flex:none}
+  .seat .st{font-weight:800; font-size:12px; color:#fff; font-variant-numeric:tabular-nums;
+    margin-top:1px}
   .seat .bet{color:var(--gold); font-size:10px; font-variant-numeric:tabular-nums}
   /* bet this street, in a chip in front of the player */
-  .betchip{position:absolute; transform:translate(-50%,-50%); width:34px; height:34px; border-radius:50%;
-    display:grid; place-items:center; font-size:11px; font-weight:900; color:#3a2c12; z-index:3;
+  .betchip{position:absolute; transform:translate(-50%,-50%); width:26px; height:26px; border-radius:50%;
+    display:grid; place-items:center; font-size:10px; font-weight:900; color:#3a2c12; z-index:7;
     background:radial-gradient(circle at 35% 30%, #fff4d0, #d8b26a 62%, #9a7c3f);
     box-shadow:0 4px 10px #0008, inset 0 0 0 2px #ffffff66;
     font-variant-numeric:tabular-nums; animation:chipIn .28s both}
@@ -179,11 +178,11 @@
   .logrow .gold{color:var(--gold); font-weight:800; white-space:nowrap}
   .seat .allin{color:#ffb74d; font-size:10px; font-weight:800; animation:blink 1s steps(2) infinite}
   @keyframes blink{50%{opacity:.35}}
-  .dbtn{position:absolute; right:-7px; top:-7px; width:19px; height:19px; border-radius:50%;
+  .dbtn{width:18px; height:18px; flex:none; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    line-height:1; padding:0; font-size:10px;
     background:radial-gradient(circle at 30% 25%, #fffdf6, #cbb98d); color:var(--ink);
-    font-weight:900; font-size:10px; display:grid; place-items:center;
-    box-shadow:0 2px 6px #0007, inset 0 -2px 3px #0002; animation:bob 2.4s ease-in-out infinite}
-  @keyframes bob{50%{transform:translateY(-3px) rotate(8deg)}}
+    font-weight:900; box-shadow:0 1px 4px #0007, inset 0 -2px 3px #0002}
   .timer{position:absolute; left:9px; right:9px; bottom:-5px; height:3px; border-radius:3px;
     background:#ffffff1f; overflow:hidden}
   .timer i{display:block; height:100%; background:linear-gradient(90deg,#d8b26a,#ffb74d);
@@ -200,7 +199,7 @@
   .seat .act.fold{color:#9fb3a8}
 
   /* ---------- centre ---------- */
-  .center{position:absolute; left:50%; top:calc(var(--ccy)*1%); transform:translate(-50%,-50%);
+  .center{position:absolute; left:50%; top:calc(var(--cy)*1%); transform:translate(-50%,-50%);
     text-align:center; z-index:2}
   .potwrap{display:flex; align-items:center; justify-content:center; margin-bottom:8px}
   .pot{color:var(--gold); font-weight:900; font-size:15px; letter-spacing:.6px;
@@ -214,7 +213,7 @@
   @keyframes fadeIn{from{opacity:0} to{opacity:1}}
 
   /* ---------- bottom ---------- */
-  .bottom{position:absolute; left:0; right:0; bottom:0; padding:6px 14px calc(10px + env(safe-area-inset-bottom));
+  .bottom{position:absolute; left:0; right:0; bottom:126px; padding:6px 14px calc(10px + env(safe-area-inset-bottom));
     z-index:4; pointer-events:none}
   .mycards{display:flex; gap:8px; justify-content:center}
   .mycards .card{animation:dealIn .45s cubic-bezier(.2,.9,.3,1.3) both; animation-delay:calc(var(--i,0)*110ms);
@@ -224,7 +223,7 @@
   .sitbar{display:flex; gap:8px; justify-content:center; align-items:center; pointer-events:auto}
   .sitbar input{width:110px}
   .status{position:absolute; left:50%; transform:translateX(-50%); z-index:9;
-    bottom:calc(128px + env(safe-area-inset-bottom)); width:max-content; max-width:92%; text-align:center}
+    bottom:calc(222px + env(safe-area-inset-bottom)); width:max-content; max-width:92%; text-align:center}
 
   /* ---------- action corners: fixed, so the felt never moves ---------- */
   .corner{position:absolute; bottom:calc(10px + env(safe-area-inset-bottom)); z-index:12; width:104px;
@@ -332,9 +331,9 @@
 
   /* narrow phones */
   @media (max-width:560px){
-    :root{--rx:42; --ry:20; --cy:40; --fx:3; --fw:94; --fy:14; --fh:52; --ccy:39}
-    .seat{width:82px; padding:5px 6px; font-size:10px}
-    .seat .st{font-size:13px}
+    :root{--rx:36; --ry:27; --cy:39}
+    .seat{padding:5px 7px; font-size:10px}
+    .seat .st{font-size:12px}
     .card{width:30px; height:42px}
     .card b{font-size:12px} .card i{font-size:10px}
     .card.lg{width:50px; height:70px}
@@ -661,7 +660,10 @@ function startStream() {
 
 /** One fetch of the table's view, and draw it. */
 async function pullTable() {
-  const v = await post(`/tables/${room.id}`);
+  const rid = room?.id;
+  if (!rid) return;
+  const v = await post(`/tables/${rid}`);
+  if (room?.id !== rid) return;   // left, or switched tables, mid-flight
   const cur = view?.hand, inc = v.hand;
   const stale = cur && inc && (inc.handNo < cur.handNo || (inc.handNo === cur.handNo && inc.version < cur.version));
   if (!stale) { view = v; err = ""; }
@@ -814,6 +816,13 @@ function geo() {
 }
 addEventListener("resize", () => { GEO = null; render(true); });
 
+/** Plate width: nine of them have to fit round the rim, so they narrow as the
+ *  table fills. One rule, one number, no per-seat styling. */
+function plateWidth(n) {
+  const base = n <= 4 ? 126 : n <= 6 ? 110 : 96;
+  return Math.round(Math.min(base, innerWidth * 0.3));
+}
+
 /** Occupied seats only, evenly spaced, you at the bottom. */
 function ringPositions() {
   const occ = (view?.seats || []).map((s) => s.seat).sort((a, b) => a - b);
@@ -821,12 +830,23 @@ function ringPositions() {
   const start = Math.max(0, occ.indexOf(me));
   const ring = occ.slice(start).concat(occ.slice(0, start));
   const g = geo();
+  const W = innerWidth || 390, H = innerHeight || 780;
+  const cx = W / 2, cy = (g.cy / 100) * H;
+  // In front of the plate by half its width plus the chip: a fraction of the
+  // radius lands on the plate at the rails, which is how chips used to end up
+  // under a name.
+  const off = plateWidth(ring.length) / 2 + 14;
   const pos = new Map();
   ring.forEach((seat, i) => {
     const ang = ((90 + i * (360 / ring.length)) * Math.PI) / 180;
     const x = 50 + g.rx * Math.cos(ang), y = g.cy + g.ry * Math.sin(ang);
-    // the bet chip sits a third of the way from the seat to the pot
-    pos.set(seat, { x, y, bx: x + (50 - x) * 0.34, by: y + (g.cy - y) * 0.34, slot: i });
+    const px = (x / 100) * W, py = (y / 100) * H;
+    const vx = cx - px, vy = cy - py, d = Math.hypot(vx, vy) || 1;
+    pos.set(seat, {
+      x, y, slot: i,
+      bx: ((px + (vx / d) * off) / W) * 100,
+      by: ((py + (vy / d) * off) / H) * 100,
+    });
   });
   return pos;
 }
@@ -931,11 +951,11 @@ function seatHTML(seatIdx, info, h, me, at) {
 
   return `
     <div class="${cls.join(" ")}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%;--si:${at?.slot ?? 0}">
-      ${h && h.dealer === seatIdx ? '<div class="dbtn">D</div>' : ""}
       ${wonAt > 0 ? `<div class="won">+${wonAt}</div>` : ""}
-      <div class="head"><div class="av">${esc(who.slice(0, 1).toUpperCase())}</div>
-        <div class="nm">${esc(who)}</div>${warn}
-        <div class="st">${ps?.stack ?? info.stack}</div></div>
+      <div class="head">${h && h.dealer === seatIdx ? '<span class="dbtn">D</span>' : ""}
+        <div class="av">${esc(who.slice(0, 1).toUpperCase())}</div>
+        <div class="nm">${esc(who)}</div>${warn}</div>
+      <div class="st">${ps?.stack ?? info.stack}</div>
       ${ps?.allIn ? '<div class="allin">ALL IN</div>' : ""}
       ${label ? `<div class="act${label === "FOLD" ? " fold" : ""}">${esc(label)}</div>` : ""}
       ${rev?.best?.name ? `<div class="handname">${esc(rev.best.name)}</div>` : ""}
@@ -1184,6 +1204,7 @@ function paint(force = false) {
   const sig = stateSig();
   if (!force && sig === lastSig) return;   // don't stomp running animations
   lastSig = sig;
+  app.style.setProperty("--sw", plateWidth((view?.seats || []).length) + "px");
 
   if (!name) {
     app.innerHTML = `<div class="wrap" style="display:flex;flex-direction:column;justify-content:center">
