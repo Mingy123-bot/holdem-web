@@ -374,7 +374,7 @@ let lastSig = "";
 // Server-sent pokes. An event carries no state: it says something changed and
 // the page refetches the view it already knows how to draw. The poll below
 // stays as the fallback for when the stream is down (or asleep in a tab).
-let stream = null, live = false, pokedAt = 0;
+let stream = null, live = false, pokeTimer = null;
 let pendingFloat = null;
 // The deal clock is the server's: view.nextAt is when the hand lands, and the
 // page only draws it. There is nothing here to arm, fire, or race.
@@ -647,12 +647,15 @@ function startStream() {
   stream.onopen = () => { live = true; };
   stream.onerror = () => { live = false; };   // EventSource retries on its own
   stream.onmessage = () => {
-    // Coalesce: a hand settling is three writes, and one refetch reads them all.
-    const t = Date.now();
-    if (t - pokedAt < 200) return;
-    pokedAt = t;
-    if (room) pullTable().catch(() => {});
-    else loadLobby().then(() => render(true)).catch(() => {});
+    // A burst of pokes (a settle is three writes) still costs one fetch, but the
+    // LAST poke of the burst always gets one. Dropping pokes inside the window
+    // left the table stale until the 5s safety net — a clock that stops moving.
+    if (pokeTimer) return;
+    pokeTimer = setTimeout(() => {
+      pokeTimer = null;
+      if (room) pullTable().catch(() => {});
+      else loadLobby().then(() => render(true)).catch(() => {});
+    }, 120);
   };
 }
 
@@ -1011,7 +1014,8 @@ function tableHTML() {
       <div style="display:flex;gap:8px">
         <button class="ghost" id="muteBtn" onclick="toggleMute()" style="padding:6px 10px">${SFX.isMuted() ? "🔇" : "🔊"}</button>
         ${view?.room?.host_id === S.uid
-          ? `<button class="ghost" onclick="openPace()" style="padding:6px 10px">Pace</button>` : ""}
+          ? `<button class="ghost" onclick="openPace()" style="padding:6px 10px">Pace</button>
+             <button class="ghost" onclick="addBot()" style="padding:6px 10px">+ Bot</button>` : ""}
         <button class="ghost" onclick="leave()" style="padding:6px 12px">Leave</button>
       </div>
     </div>
@@ -1127,6 +1131,12 @@ window.openLog = async () => {
   logOpen = true;
   render(true);
   try { ledger = await post(`/tables/${room.id}/ledger`); } catch (e) { err = e.message; }
+  render(true);
+};
+
+/** Host only: one more bot at the table. It plays from here like anyone else. */
+window.addBot = async () => {
+  try { view = await post(`/tables/${room.id}/bots`, { n: 1 }); err = ""; } catch (e) { err = e.message; }
   render(true);
 };
 
